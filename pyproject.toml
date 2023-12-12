@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datasiphon"
+dynamic = ["version", ]
+authors = [
+    { name = "Marek Nemeth", email = "99m.nemeth@gmail.com" },
+]
+description = "Dynamic building of filtered database queries"
+readme = "README.md"
+license =  { text = "BSD-3-Clause" }
+requires-python = ">=3.11"
+dependencies = []
+keywords = ["database", "sql", "filtering", "query"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Typing :: Typed",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Nemulo/libs-datasiphon"
+"Bug Tracker" = "https://github.com/Nemulo/libs-datasiphon/issues"
+"Documentation" = "https://github.com/Nemulo/libs-datasiphon/blob/main/README.md"
+
+[options]
+test_suite = "tests"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["siphon", ]
+
+[tool.setuptools.dynamic]
+version = {attr = "siphon.__version__"}
+
+[coverage.run]
+branch = true
+source = [
+    "src/siphon",
+    "tests",
+]
+
+[coverage.paths]
+source = "siphon"

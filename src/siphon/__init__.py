@@ -4,7 +4,15 @@
 # 1. research database clients for python - Start with SQL - sqlalchemy supports all dialects
 from . import sql, nosql
 import typing as t
-t_Database = type(sql.SQL)
 
-def build(filter_ : dict, builder_class: t_Database, input_: t.Any) -> t.Any:
+VERSION = (0, 0, 1)
+__version__ = '.'.join(map(str, VERSION))
+
+
+t_Database = t.TypeVar('t_Database', sql.SQL, nosql.Mongo)
+
+__all__ = ['build', 'sql', 'nosql']
+
+
+def build(filter_: dict, builder_class: t_Database, input_: t.Any) -> t.Any:
     return builder_class.build(input_, filter_)
