@@ -101,10 +101,14 @@ class SQL(QueryBuilder):
 
     @staticmethod
     def in_(column: sa.Column, value: t.Any) -> sa.ColumnElement:
+        if not isinstance(value, (list, tuple)):
+            value = [value]
         return column.in_(value)
 
     @staticmethod
     def nin(column: sa.Column, value: t.Any) -> sa.ColumnElement:
+        if not isinstance(value, (list, tuple)):
+            value = [value]
         return ~column.in_(value)
 
     @classmethod

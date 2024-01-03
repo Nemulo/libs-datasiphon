@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools>=65"]
+requires = ["setuptools>=65", "sqlalchemy>=2.0.0",
+    "pymongo>=4.5.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -12,7 +13,10 @@ description = "Dynamic building of filtered database queries"
 readme = "README.md"
 license =  { text = "BSD-3-Clause" }
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "sqlalchemy>=2.0.0",
+    "pymongo>=4.5.0"
+    ]
 keywords = ["database", "sql", "filtering", "query"]
 classifiers = [
     "License :: OSI Approved :: MIT License",
