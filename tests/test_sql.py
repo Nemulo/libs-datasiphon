@@ -136,5 +136,22 @@ class SQLTest(unittest.TestCase):
                          ds.sql.SQL, data.base_select)),
             str(data.base_select.where(data.test_table.c.name == 'John')))
 
+    def test_invalid_inputs(self):
+        import src.siphon as ds
+
+        # test invalid inputs
+        # parsed dict with invalid operators
+        with self.assertRaises(ds.base.SiphonError):
+            ds.build({'name': {'invalid': 'John'}}, ds.sql.SQL, data.tt_select)
+
+        # parsed dict which is not nested
+        with self.assertRaises(ds.base.SiphonError):
+            ds.build({'name': 'John'}, ds.sql.SQL, data.tt_select)
+
+        # mistyped input
+        with self.assertRaises(ds.base.SiphonError):
+            ds.build({'name[eq': 'John'}, ds.sql.SQL, data.tt_select)
+
+
 if __name__ == "__main__":
     unittest.main()
