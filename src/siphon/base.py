@@ -40,20 +40,23 @@ class QueryBuilder:
     @classmethod
     def _op(cls, op):
         return getattr(cls, op)
-    
 
 
-class FilterFormatError(Exception):
+class SiphonError(Exception):
     pass
 
 
-class FilterColumnError(Exception):
+class FilterFormatError(SiphonError):
     pass
 
 
-class InvalidOperatorError(Exception):
+class FilterColumnError(SiphonError):
     pass
 
 
-class InvalidValueError(Exception):
+class InvalidOperatorError(SiphonError):
+    pass
+
+
+class InvalidValueError(SiphonError):
     pass
