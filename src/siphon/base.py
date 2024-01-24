@@ -59,3 +59,6 @@ class InvalidOperatorError(SiphonError):
 
 class InvalidValueError(SiphonError):
     pass
+
+class InvalidRestrictionModel(SiphonError):
+    pass

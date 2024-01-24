@@ -1,4 +1,4 @@
-from .base import QueryBuilder, FilterFormatError, FilterColumnError, InvalidOperatorError, InvalidValueError
+from .base import QueryBuilder, FilterFormatError, FilterColumnError, InvalidOperatorError, InvalidValueError, InvalidRestrictionModel
 import sqlalchemy as sa
 import typing as t
 from pydantic import BaseModel, model_validator, ValidationError
@@ -60,7 +60,7 @@ class SqlOrderFilter(BaseModel):
             raise ValueError("Either asc or desc must be set")
         # NOTE not supporting multiple order by columns
         if self.asc is not None and self.desc is not None:
-            raise ValueError("Only one of asc or desc can be set")
+            raise FilterFormatError("Only one of asc or desc can be set")
         return self
 
     def validate_against_query(self, query: sa.Select):
@@ -71,35 +71,15 @@ class SqlOrderFilter(BaseModel):
 
         :raises FilterColumnError: If the filter has invalid columns
         """
-        all_ordered_columns = []
-        if self.asc is not None:
-            if isinstance(self.asc, str):
-                all_ordered_columns.append(self.asc)
-            else:
-                all_ordered_columns.extend(self.asc)
-        if self.desc is not None:
-            if isinstance(self.desc, str):
-                all_ordered_columns.append(self.desc)
-            else:
-                all_ordered_columns.extend(self.desc)
+        all_ordered_columns = self.all_ordered_columns()
         for set_column in all_ordered_columns:
             if set_column not in query.exported_columns:
                 raise FilterColumnError(
                     f"Invalid column: {set_column}")
 
     def all_ordered_columns(self) -> set[str]:
-        joined_columns = []
-        if self.asc is not None:
-            if isinstance(self.asc, str):
-                joined_columns.append(self.asc)
-            else:
-                joined_columns.extend(self.asc)
-        if self.desc is not None:
-            if isinstance(self.desc, str):
-                joined_columns.append(self.desc)
-            else:
-                joined_columns.extend(self.desc)
-        return set(joined_columns)
+        column = self.asc or self.desc
+        return set([column])
 
 
 class KeywordFilter(BaseModel):
@@ -142,7 +122,7 @@ class SQL(QueryBuilder):
                 # just for validation of body
                 # verify that keyword is in filter model as attribute and its type is correct
                 if not isinstance(getattr(filter_model, col_name), keyword_validation[col_name][0]):
-                    raise FilterFormatError(
+                    raise InvalidRestrictionModel(
                         f'Expected format for filter model item is {keyword_validation[col_name][0]}, allowed operations such as <colum_name>: {keyword_validation[col_name][0]} = [<allowed_operations>], or None'
                     )
                 # verify that models' body evaluation function (based on dictionary above) returns True
@@ -155,7 +135,7 @@ class SQL(QueryBuilder):
                 continue
             model_body = getattr(filter_model, col_name)
             if not isinstance(model_body, (list, type(None))):
-                raise FilterFormatError(
+                raise InvalidRestrictionModel(
                     f'Expected format for filter model item is list, allowed operations such as <colum_name>: list = [<allowed_operations>], or None'
                 )
             if model_body is not None:
@@ -261,12 +241,12 @@ class SQL(QueryBuilder):
         # validate columns - every `order_by` column has to be in `select` statement
         if 'order_by' in kw_arguments:
             if not set(kw_arguments['order_by']).issubset(set(query.selected_columns.keys())):
-                raise FilterColumnError(
-                    f"Invalid column: {set(kw_arguments['order_by']) - set(query.selected_columns.keys())}")
+                raise InvalidRestrictionModel(
+                    f"Invalid column: {set(kw_arguments['order_by']) - set(query.selected_columns.keys())} not found in select statement")
         # validate columns - every column has to be in `select` statement
         if not set(data).issubset(set(query.selected_columns.keys())):
-            raise FilterColumnError(
-                f"Invalid column: {set(data) - set(query.selected_columns.keys())}")
+            raise InvalidRestrictionModel(
+                f"Invalid column: {set(data) - set(query.selected_columns.keys())} not found in select statement")
 
     @classmethod
     def build(cls, query: sa.Select, qs_filter: dict, filter_model: BaseModel = None) -> sa.Select:
