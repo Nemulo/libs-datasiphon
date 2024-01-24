@@ -27,11 +27,11 @@ class SqlColumnFilter(BaseModel):
         for operation in self.model_fields_set:
             if operation in ['in_', 'nin']:
                 if not all([isinstance(value, column.type.python_type) for value in getattr(self, operation)]):
-                    raise FilterColumnError(
+                    raise InvalidValueError(
                         f"Invalid value: {getattr(self, operation)}")
             else:
                 if not isinstance(getattr(self, operation), column.type.python_type):
-                    raise FilterColumnError(
+                    raise InvalidValueError(
                         f"Invalid value: {getattr(self, operation)}")
 
     @model_validator(mode='after')
@@ -45,19 +45,22 @@ class RestrictedFilter(SqlColumnFilter):
         super().__init__(**kwargs)
         if allowed_operations is not None:
             if not self.model_fields_set.issubset(set(allowed_operations)):
-                raise ValueError(
-                    f"Invalid operations: {self.model_fields_set - set(allowed_operations)}")
+                raise InvalidOperatorError(
+                    f"Invalid operations: {self.model_fields_set - set(allowed_operations)} are restricted for this filter")
 
 
 class SqlOrderFilter(BaseModel):
     # TODO can be also list of strings
-    asc: str | list[str] = None
-    desc: str | list[str] = None
+    asc: str = None
+    desc: str = None
 
     @model_validator(mode='after')
     def check_values(self):
         if self.asc is None and self.desc is None:
             raise ValueError("Either asc or desc must be set")
+        # NOTE not supporting multiple order by columns
+        if self.asc is not None and self.desc is not None:
+            raise ValueError("Only one of asc or desc can be set")
         return self
 
     def validate_against_query(self, query: sa.Select):
@@ -84,6 +87,20 @@ class SqlOrderFilter(BaseModel):
                 raise FilterColumnError(
                     f"Invalid column: {set_column}")
 
+    def all_ordered_columns(self) -> set[str]:
+        joined_columns = []
+        if self.asc is not None:
+            if isinstance(self.asc, str):
+                joined_columns.append(self.asc)
+            else:
+                joined_columns.extend(self.asc)
+        if self.desc is not None:
+            if isinstance(self.desc, str):
+                joined_columns.append(self.desc)
+            else:
+                joined_columns.extend(self.desc)
+        return set(joined_columns)
+
 
 class KeywordFilter(BaseModel):
     order_by: SqlOrderFilter = None
@@ -102,7 +119,7 @@ class SQL(QueryBuilder):
     }
 
     @staticmethod
-    def validate_filter_model_structure(filter_model: BaseModel):
+    def validate_filter_model_structure(input_filter: dict, filter_model: BaseModel):
         """
         Validate the format of the model
 
@@ -112,18 +129,39 @@ class SQL(QueryBuilder):
         :raises FilterFormatError: If the model has an invalid format
         :raises InvalidOperatorError: If the model has an invalid operator
         """
-        for col_name, filter_body in filter_model.model_fields.items():
-            if not isinstance(filter_body, (list, type(None))):
+        keyword_validation = {
+            'order_by': (list, lambda x: SqlOrderFilter(**x[0]).all_ordered_columns().issubset(x[1])),
+            'limit': (bool, lambda x: x[1]),
+            'offset': (bool, lambda x: x[1])
+        }
+        for col_name, filter_body in input_filter.items():
+            if col_name not in filter_model.model_fields.keys():
+                raise FilterFormatError(
+                    f'Column {col_name} is not allowed in filter model')
+            if col_name in keyword_validation:
+                # just for validation of body
+                # verify that keyword is in filter model as attribute and its type is correct
+                if not isinstance(getattr(filter_model, col_name), keyword_validation[col_name][0]):
+                    raise FilterFormatError(
+                        f'Expected format for filter model item is {keyword_validation[col_name][0]}, allowed operations such as <colum_name>: {keyword_validation[col_name][0]} = [<allowed_operations>], or None'
+                    )
+                # verify that models' body evaluation function (based on dictionary above) returns True
+                # create pair of provided body and provided restriction
+                eval_pair = (filter_body, getattr(filter_model, col_name))
+                column_evaluation = keyword_validation[col_name][1](eval_pair)
+                if not column_evaluation:
+                    raise FilterFormatError(
+                        f'Invalid value for keyword: {col_name} -> restriction: {eval_pair[1]} not met')
+                continue
+            model_body = getattr(filter_model, col_name)
+            if not isinstance(model_body, (list, type(None))):
                 raise FilterFormatError(
                     f'Expected format for filter model item is list, allowed operations such as <colum_name>: list = [<allowed_operations>], or None'
                 )
-            # order_by check - accepts list of any strings, validation against model is done in validate_filter_columns
-            if col_name == 'order_by':
-                continue
-            if filter_body is not None:
-                if not set(filter_body).issubset(set(SQL.OPS)):
+            if model_body is not None:
+                if not set(model_body).issubset(set(SQL.OPS)):
                     raise InvalidOperatorError(
-                        f'Invalid operator in filter model: {set(filter_body) - set(SQL.OPS)}')
+                        f'Invalid operator in filter model: {set(model_body) - set(SQL.OPS)}')
 
     @staticmethod
     def validate_filter_structure(filter_input: dict):
@@ -139,9 +177,7 @@ class SQL(QueryBuilder):
         for col_name, filter_body in filter_input.items():
             try:
                 if col_name in SQL.KW:
-
                     _ = SQL.KW[col_name](filter_body)
-
                 else:
                     _ = SqlColumnFilter(**filter_body)
             except (ValidationError, TypeError):
@@ -170,18 +206,16 @@ class SQL(QueryBuilder):
         parsed_filter = {}
         parsed_keywords = {}
         if filter_model is not None:
-            SQL.validate_filter_model_structure(filter_model)
+            SQL.validate_filter_model_structure(filter_columns, filter_model)
             SQL.validate_filter_model_columns(filter_model, query)
             for filter_key, filter_body in filter_columns.items():
                 if filter_key in SQL.KW:
                     keyword_item = SQL.KW[filter_key](filter_body)
                     if isinstance(keyword_item, SqlOrderFilter):
                         keyword_item.validate_against_query(query)
+                        # verify that all `order_by` columns are in allowed
                     parsed_keywords[filter_key] = keyword_item
                 else:
-                    if filter_key not in filter_model.model_fields.keys():
-                        raise FilterColumnError(
-                            f"Column cannot be filtered: {filter_key}")
                     filter_item = RestrictedFilter(
                         allowed_operations=getattr(filter_model, filter_key), **filter_body)
                     filter_item.validate_against_query(
