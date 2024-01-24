@@ -5,7 +5,7 @@
 from . import sql, nosql, base
 import typing as t
 
-VERSION = (0, 0, 3)
+VERSION = (0, 1, 0)
 __version__ = '.'.join(map(str, VERSION))
 
 
@@ -15,4 +15,5 @@ __all__ = ['build', 'sql', 'nosql']
 
 
 def build(filter_: dict, builder_class: t_Database, input_: t.Any) -> t.Any:
+    DeprecationWarning('Use builder_class.build(input_, filter_) instead')
     return builder_class.build(input_, filter_)

@@ -1,6 +1,7 @@
 import unittest
 import sys
 import data
+from pydantic import BaseModel
 sys.path.append(".")
 
 
@@ -10,13 +11,16 @@ class SQLTest(unittest.TestCase):
         import src.siphon as ds
 
         # Test filtering - format
+        # 1. not a select
+        with self.assertRaises(TypeError):
+            ds.build({'name': {'eq': 'John'}}, ds.sql.SQL, data.test_table)
 
         # 2. keyword with invalid value
-        with self.assertRaises(ds.sql.InvalidValueError):
+        with self.assertRaises(ds.sql.FilterFormatError):
             ds.build({'limit': {'eq': 1}}, ds.sql.SQL, data.tt_select)
 
         # 3. keyword order_by with invalid value
-        with self.assertRaises(ds.sql.InvalidOperatorError):
+        with self.assertRaises(ds.sql.FilterFormatError):
             ds.build({'order_by': {'eq': 1}}, ds.sql.SQL, data.tt_select)
 
         # 4. keyword order_by with invalid value
@@ -27,10 +31,11 @@ class SQLTest(unittest.TestCase):
         with self.assertRaises(ds.sql.FilterFormatError):
             ds.build({'name': 'John'}, ds.sql.SQL, data.tt_select)
 
-        # 6. non-keyword with invalid operator
-        with self.assertRaises(ds.sql.InvalidOperatorError):
-            ds.build({'name': {'eq': 'John', 'invalid': 'invalid'}},
-                     ds.sql.SQL, data.tt_select)
+        # 6. non-keyword with invalid operator - now ignored invalid operations TODO
+        self.assertEqual(
+            str(ds.build({'name': {'eq': 'John', 'invalid': 'invalid'}},
+                         ds.sql.SQL, data.tt_select)),
+            str(data.tt_select.where(data.test_table.c.name == 'John')))
 
         # Test filtering - columns
         # 1. column not in select
@@ -119,17 +124,33 @@ class SQLTest(unittest.TestCase):
                 ds.sql.SQL, data.tt_select)),
             str(data.tt_select.where(~data.test_table.c.age.in_([20, 21]))))
 
+        # test filter not correct type
+        with self.assertRaises(ds.sql.InvalidValueError):
+            ds.build({'name': {'eq': 1}}, ds.sql.SQL, data.tt_select)
+
+        # test multiple order by's
+        with self.assertRaises(ds.sql.FilterFormatError):
+            ds.build({'order_by': {'desc': 'name', 'asc': 'age'}},
+                     ds.sql.SQL, data.tt_select)
+
     def test_advanced_select(self):
         import src.siphon as ds
 
-        # test combined tables
+        # test combined tables - should raise error since value is of type string
+        # NOTE functionality updated v 0.1.0
+        with self.assertRaises(ds.sql.InvalidValueError):
+            ds.build({'name': {'eq': 'John'}, 'value': {'in_': [1, 2]}},
+                     ds.sql.SQL, data.st_tt_select)
+
+        # combined tables correct select
         self.assertEqual(
-            str(ds.build({'name': {'eq': 'John'}, 'value': {'in_': [1, 2]}},
+            str(ds.build({'name': {'eq': 'John'}, 'value': {'in_': ['abc', 'def']}},
                          ds.sql.SQL, data.st_tt_select)),
             str(data.st_tt_select.where(
-                (data.test_table.c.name == 'John') &
-                (data.secondary_test.c.value.in_([1, 2])))))
-
+                data.test_table.c.name == 'John',
+                data.secondary_test.c.value.in_(['abc', 'def']))
+                )
+        ),
         # test base table select
         self.assertEqual(
             str(ds.build({'name': {'eq': 'John'}},
@@ -151,6 +172,95 @@ class SQLTest(unittest.TestCase):
         # mistyped input
         with self.assertRaises(ds.base.SiphonError):
             ds.build({'name[eq': 'John'}, ds.sql.SQL, data.tt_select)
+
+    def test_restricted_inputs(self):
+        import src.siphon as ds
+
+        # test non restricted select with single order by
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.tt_select, {'order_by': {'desc': 'name'}})),
+            str(data.tt_select.order_by(data.test_table.c.name.desc()))
+        )
+
+        # restrictions on filters
+        class BaseUserRestriction(BaseModel):
+            name: list[str] = ['eq', 'ne']
+
+        restriction = BaseUserRestriction()
+
+        # test restricted select with single order by
+        with self.assertRaises(ds.sql.FilterFormatError):
+            ds.sql.SQL.build(data.tt_select, {'order_by': {'desc': 'name'}}, filter_model=restriction)
+
+        # test restricted select
+        with self.assertRaises(ds.sql.InvalidOperatorError):
+            ds.sql.SQL.build(data.tt_select, {'name': {'in_': 'John'}}, filter_model=restriction)
+
+        class AdvancedUserRestriction(BaseModel):
+            name: list[str] = ['eq', 'ne']
+            age: list[str] = ['eq', 'ne', 'in_']
+            value: list[str] = ['in_']
+            order_by: list[str] = ['name', 'age']
+            limit: bool = True
+
+        restriction = AdvancedUserRestriction()
+
+        # test restricted select with single order by
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.st_tt_select, {'order_by': {'desc': 'name'}}, filter_model=restriction)),
+            str(data.st_tt_select.order_by(data.test_table.c.name.desc()))
+        )
+
+        # test restricted select
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.st_tt_select, {'name': {'eq': 'John'}}, filter_model=restriction)),
+            str(data.st_tt_select.where(data.test_table.c.name == 'John'))
+        )
+
+        # test invalid order by column
+        with self.assertRaises(ds.sql.FilterFormatError):
+            ds.sql.SQL.build(data.tt_select, {'order_by': {'desc': 'value'}}, filter_model=restriction)
+
+        # invalid restriction model
+        class InvalidRestriction(BaseModel):
+            name: str = 'eq'
+
+        restriction = InvalidRestriction()
+
+        with self.assertRaises(ds.sql.InvalidRestrictionModel):
+            ds.sql.SQL.build(data.tt_select, {'name': {'eq': 'John'}}, filter_model=restriction)
+
+        class InvalidRestrictionKeyword(BaseModel):
+            limit: int = 10
+
+        restriction = InvalidRestrictionKeyword()
+
+        with self.assertRaises(ds.sql.InvalidRestrictionModel):
+            ds.sql.SQL.build(data.tt_select, {'limit': 10}, filter_model=restriction)
+
+        class InvalidRestrictionOperators(BaseModel):
+            name: list[str] = ['eq', 'ne', 'invalid']
+
+        restriction = InvalidRestrictionOperators()
+
+        with self.assertRaises(ds.sql.InvalidOperatorError):
+            ds.sql.SQL.build(data.tt_select, {'name': {'eq': 'John'}}, filter_model=restriction)
+
+        class InvalidOrderByColumns(BaseModel):
+            order_by: list[str] = ['name', 'invalid']
+
+        restriction = InvalidOrderByColumns()
+
+        with self.assertRaises(ds.sql.InvalidRestrictionModel):
+            ds.sql.SQL.build(data.tt_select, {'order_by': {'desc': 'name'}}, filter_model=restriction)
+
+        class NonExistentCol(BaseModel):
+            invalid: list[str] = ['eq', 'ne']
+
+        restriction = NonExistentCol()
+
+        with self.assertRaises(ds.sql.InvalidRestrictionModel):
+            ds.sql.SQL.build(data.tt_select, {'invalid': {'eq': 'John'}}, filter_model=restriction)
 
 
 if __name__ == "__main__":

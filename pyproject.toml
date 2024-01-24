@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=65", "sqlalchemy>=2.0.0",
-    "pymongo>=4.5.0"]
+requires = ["setuptools>=65", "sqlalchemy>=2.0.0", "pydantic>=2.5.3",
+"pydantic_core>=2.14.6","pymongo>=4.5.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
