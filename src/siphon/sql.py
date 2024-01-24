@@ -1,37 +1,159 @@
 from .base import QueryBuilder, FilterFormatError, FilterColumnError, InvalidOperatorError, InvalidValueError
 import sqlalchemy as sa
 import typing as t
+from pydantic import BaseModel, model_validator, ValidationError
+
+
+class SqlColumnFilter(BaseModel):
+    eq: t.Any = None
+    ne: t.Any = None
+    gt: t.Any = None
+    ge: t.Any = None
+    lt: t.Any = None
+    le: t.Any = None
+    in_: t.Any = None
+    nin: t.Any = None
+
+    def validate_against_query(self, column: sa.Column):
+        """
+        Validate the filter against the query
+
+        :param query: The query to validate against
+
+        :raises FilterColumnError: If the filter has invalid columns
+        """
+        # 1. validate for every operation correct type -> every operation except in_ and nin
+        # has to be the same type as column (in_ and nin can be list of given type)
+        for operation in self.model_fields_set:
+            if operation in ['in_', 'nin']:
+                if not all([isinstance(value, column.type.python_type) for value in getattr(self, operation)]):
+                    raise FilterColumnError(
+                        f"Invalid value: {getattr(self, operation)}")
+            else:
+                if not isinstance(getattr(self, operation), column.type.python_type):
+                    raise FilterColumnError(
+                        f"Invalid value: {getattr(self, operation)}")
+
+    @model_validator(mode='after')
+    def check_values(self):
+        if self.model_fields_set == set():
+            raise ValueError("At least one operation must be set")
+
+
+class RestrictedFilter(SqlColumnFilter):
+    def __init__(self, allowed_operations: t.List[str] = None, **kwargs):
+        super().__init__(**kwargs)
+        if allowed_operations is not None:
+            if not self.model_fields_set.issubset(set(allowed_operations)):
+                raise ValueError(
+                    f"Invalid operations: {self.model_fields_set - set(allowed_operations)}")
+
+
+class SqlOrderFilter(BaseModel):
+    # TODO can be also list of strings
+    asc: str | list[str] = None
+    desc: str | list[str] = None
+
+    @model_validator(mode='after')
+    def check_values(self):
+        if self.asc is None and self.desc is None:
+            raise ValueError("Either asc or desc must be set")
+        return self
+
+    def validate_against_query(self, query: sa.Select):
+        """
+        Validate the filter against the query
+
+        :param query: The query to validate against
+
+        :raises FilterColumnError: If the filter has invalid columns
+        """
+        all_ordered_columns = []
+        if self.asc is not None:
+            if isinstance(self.asc, str):
+                all_ordered_columns.append(self.asc)
+            else:
+                all_ordered_columns.extend(self.asc)
+        if self.desc is not None:
+            if isinstance(self.desc, str):
+                all_ordered_columns.append(self.desc)
+            else:
+                all_ordered_columns.extend(self.desc)
+        for set_column in all_ordered_columns:
+            if set_column not in query.exported_columns:
+                raise FilterColumnError(
+                    f"Invalid column: {set_column}")
+
+
+class KeywordFilter(BaseModel):
+    order_by: SqlOrderFilter = None
+    limit: int = None
+    offset: int = None
 
 
 class SQL(QueryBuilder):
     """
     SQL query builder
     """
+    KW = {
+        'order_by': lambda data: SqlOrderFilter(**data),
+        'limit': int,
+        'offset': int
+    }
 
     @staticmethod
-    def validate_fmt(model: dict):
+    def validate_filter_model_structure(filter_model: BaseModel):
         """
         Validate the format of the model
 
         :param model: The model to validate
+        :param filter_model: The model to validate against (allowed fields for filter)
 
         :raises FilterFormatError: If the model has an invalid format
         :raises InvalidOperatorError: If the model has an invalid operator
         """
-        for key, value in model.items():
-            if key in SQL.KW:
-                if key == 'order_by' and not isinstance(value, dict):
-                    raise FilterFormatError(
-                        f"Invalid format: {key} -> {value}")
+        for col_name, filter_body in filter_model.model_fields.items():
+            if not isinstance(filter_body, (list, type(None))):
+                raise FilterFormatError(
+                    f'Expected format for filter model item is list, allowed operations such as <colum_name>: list = [<allowed_operations>], or None'
+                )
+            # order_by check - accepts list of any strings, validation against model is done in validate_filter_columns
+            if col_name == 'order_by':
                 continue
-            if not isinstance(value, dict):
-                raise FilterFormatError(f"Invalid format: {key} -> {value}")
-            for op, value in value.items():
-                if op not in SQL.OPS:
-                    raise InvalidOperatorError(f"Invalid operator: {op}")
+            if filter_body is not None:
+                if not set(filter_body).issubset(set(SQL.OPS)):
+                    raise InvalidOperatorError(
+                        f'Invalid operator in filter model: {set(filter_body) - set(SQL.OPS)}')
 
     @staticmethod
-    def validate_cols(model: dict, stm: sa.Select):
+    def validate_filter_structure(filter_input: dict):
+        """
+        Validate the format of the model
+
+        :param model: The model to validate
+        :param filter_model: The model to validate against (allowed fields for filter)
+
+        :raises FilterFormatError: If the model has an invalid format
+        :raises InvalidOperatorError: If the model has an invalid operator
+        """
+        for col_name, filter_body in filter_input.items():
+            try:
+                if col_name in SQL.KW:
+
+                    _ = SQL.KW[col_name](filter_body)
+
+                else:
+                    _ = SqlColumnFilter(**filter_body)
+            except (ValidationError, TypeError):
+                raise FilterFormatError(
+                    f"Invalid value for keyword: {col_name}")
+
+    @staticmethod
+    def validate_filter_columns(
+        filter_columns: dict,
+        query: sa.Select,
+        filter_model: BaseModel = None
+    ) -> tuple[dict[str, RestrictedFilter], KeywordFilter]:
         """
         Validate the columns of the model against the columns of the statement
 
@@ -40,19 +162,85 @@ class SQL(QueryBuilder):
 
         :raises FilterColumnError: If the model has invalid columns
         """
-        stm_cols = set(stm.selected_columns.keys())
-        model_cols = set(model.keys()) - set(SQL.KW)
-        if not model_cols.issubset(stm_cols):
+        # 1. divide into filter columns and keyword columns
+        # 2. if base model is provided
+        # 2.1 compare base model to provided columns - if possible in separate function
+        # 2.2 validate provided filter to base model
+        # 3. validate filter against query
+        parsed_filter = {}
+        parsed_keywords = {}
+        if filter_model is not None:
+            SQL.validate_filter_model_structure(filter_model)
+            SQL.validate_filter_model_columns(filter_model, query)
+            for filter_key, filter_body in filter_columns.items():
+                if filter_key in SQL.KW:
+                    keyword_item = SQL.KW[filter_key](filter_body)
+                    if isinstance(keyword_item, SqlOrderFilter):
+                        keyword_item.validate_against_query(query)
+                    parsed_keywords[filter_key] = keyword_item
+                else:
+                    if filter_key not in filter_model.model_fields.keys():
+                        raise FilterColumnError(
+                            f"Column cannot be filtered: {filter_key}")
+                    filter_item = RestrictedFilter(
+                        allowed_operations=getattr(filter_model, filter_key), **filter_body)
+                    filter_item.validate_against_query(
+                        query.exported_columns[filter_key])
+                    parsed_filter[filter_key] = filter_item
+        else:
+            for filter_key, filter_body in filter_columns.items():
+                if filter_key in SQL.KW:
+                    keyword_item = SQL.KW[filter_key](filter_body)
+                    if isinstance(keyword_item, SqlOrderFilter):
+                        keyword_item.validate_against_query(query)
+                    parsed_keywords[filter_key] = keyword_item
+                else:
+                    filter_item = SqlColumnFilter(**filter_body)
+                    if query.exported_columns.get(filter_key) is None:
+                        raise FilterColumnError(
+                            f"Column couldn't be found in select query: {filter_key}"
+                        )
+                    filter_item.validate_against_query(
+                        query.exported_columns[filter_key])
+                    parsed_filter[filter_key] = filter_item
+        return parsed_filter, KeywordFilter(**parsed_keywords)
+
+    @staticmethod
+    def validate_filter_model_columns(
+        filter_model: BaseModel,
+        query: sa.Select
+    ) -> None:
+        """
+        Validate the columns of the model against the columns of the statement
+
+        :param model: The model to validate
+        :param stm: The statement to validate against
+
+        :raises FilterColumnError: If the model has invalid columns
+        """
+        # dump data to dictionary
+        data = filter_model.model_dump()
+        kw_arguments = {}
+        for kw in SQL.KW:
+            if kw in data:
+                kw_arguments[kw] = data.pop(kw)
+        # validate columns - every `order_by` column has to be in `select` statement
+        if 'order_by' in kw_arguments:
+            if not set(kw_arguments['order_by']).issubset(set(query.selected_columns.keys())):
+                raise FilterColumnError(
+                    f"Invalid column: {set(kw_arguments['order_by']) - set(query.selected_columns.keys())}")
+        # validate columns - every column has to be in `select` statement
+        if not set(data).issubset(set(query.selected_columns.keys())):
             raise FilterColumnError(
-                f"Invalid columns: {model_cols - stm_cols}")
+                f"Invalid column: {set(data) - set(query.selected_columns.keys())}")
 
     @classmethod
-    def build(cls, stm: sa.Select, model: dict) -> sa.Select:
+    def build(cls, query: sa.Select, qs_filter: dict, filter_model: BaseModel = None) -> sa.Select:
         """
         Build a SQL query from a model
 
-        :param stm: The statement to build from
-        :param model: The model to build from
+        :param query: The statement to build from
+        :param qs_filter: The model to build from
 
         :raises TypeError: If the statement is not a Select statement
         :raises FilterFormatError: If the model has an invalid format
@@ -62,18 +250,19 @@ class SQL(QueryBuilder):
 
         :return: The built statement
         """
-        if not isinstance(stm, sa.Select):
-            raise TypeError(f"Invalid type: {type(stm)}")
-        cls.validate_fmt(model)
-        cls.validate_cols(model, stm)
-        for col, filters_ in model.items():
-            if col in cls.KW:
-                stm = cls._kw(col, stm, filters_)
-            else:
-                for op, value in filters_.items():
-                    stm = stm.where(cls._op(op)(
-                        stm.exported_columns[col], value))
-        return stm
+        if not isinstance(query, sa.Select):
+            raise TypeError(f"Invalid type: {type(query)}")
+
+        cls.validate_filter_structure(qs_filter)
+        filtered_columns, keyword_attributes = cls.validate_filter_columns(qs_filter, query, filter_model=filter_model)
+        for column_name, filters_ in filtered_columns.items():
+            for operation in filters_.model_fields_set:
+                query = query.where(cls._op(operation)(
+                    query.exported_columns[column_name], getattr(filters_, operation)))
+        for keyword in keyword_attributes.model_fields_set:
+            if value := getattr(keyword_attributes, keyword):
+                query = cls._kw(keyword, query, value)
+        return query
 
     @staticmethod
     def eq(column: sa.Column, value: t.Any) -> sa.ColumnElement:
@@ -116,7 +305,7 @@ class SQL(QueryBuilder):
         return getattr(cls, kw)(stm, value)
 
     @staticmethod
-    def order_by(stm: sa.Select, value: dict) -> sa.Select:
+    def order_by(stm: sa.Select, value: SqlOrderFilter) -> sa.Select:
         """
         Apply an order_by to a statement
 
@@ -131,12 +320,18 @@ class SQL(QueryBuilder):
             'asc': sa.asc,
             'desc': sa.desc
         }
-        try:
-            for direction, col in value.items():
-                stm = stm.order_by(ordering[direction](
-                    stm.exported_columns[col]))
-        except KeyError:
-            raise InvalidOperatorError(f"Invalid order_by: {value}")
+        ascending_columns = value.asc if value.asc is not None else []
+        ascending_columns = ascending_columns if isinstance(
+            ascending_columns, list) else [ascending_columns]
+
+        descending_columns = value.desc if value.desc is not None else []
+        descending_columns = descending_columns if isinstance(
+            descending_columns, list) else [descending_columns]
+
+        for column in ascending_columns:
+            stm = stm.order_by(ordering['asc'](column))
+        for column in descending_columns:
+            stm = stm.order_by(ordering['desc'](column))
         return stm
 
     @staticmethod

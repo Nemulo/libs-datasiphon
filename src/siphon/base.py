@@ -3,7 +3,6 @@ import typing as t
 
 class QueryBuilder:
     OPS = ['eq', 'ne', 'gt', 'ge', 'lt', 'le', 'in_', 'nin']
-    KW = ['order_by', 'limit', 'offset']
 
     @staticmethod
     def eq(column: t.Any, value: t.Any) -> t.Any:
