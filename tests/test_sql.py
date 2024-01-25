@@ -287,6 +287,25 @@ class SQLTest(unittest.TestCase):
         with self.assertRaises(ds.sql.InvalidRestrictionModel):
             ds.sql.SQL.build(data.tt_select, {'invalid': {'eq': 'John'}}, filter_model=restriction)
 
+    def test_multiple_order_by(self):
+        import src.siphon as ds
+
+        # test multiple order by's
+        self.assertEqual(
+            str(ds.build({'order_by': ['name.desc', 'age.asc']},
+                         ds.sql.SQL, data.tt_select)),
+            str(data.tt_select.order_by(data.test_table.c.name.desc(), data.test_table.c.age.asc())))
+        
+        # test multiple order by's with invalid column
+        with self.assertRaises(ds.sql.FilterColumnError):
+            ds.build({'order_by': ['name.desc', 'invalid.asc']},
+                     ds.sql.SQL, data.tt_select)
+            
+        # test multiple order by's with invalid operator
+        with self.assertRaises(ds.sql.InvalidValueError):
+            ds.build({'order_by': ['name.desc', 'age.invalid']},
+                     ds.sql.SQL, data.tt_select)
+            
 
 if __name__ == "__main__":
     unittest.main()
