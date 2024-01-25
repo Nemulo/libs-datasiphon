@@ -24,7 +24,7 @@ class SQLTest(unittest.TestCase):
             ds.build({'order_by': {'eq': 1}}, ds.sql.SQL, data.tt_select)
 
         # 4. keyword order_by with invalid value
-        with self.assertRaises(ds.sql.FilterFormatError):
+        with self.assertRaises(ds.sql.InvalidValueError):
             ds.build({'order_by': 'name'}, ds.sql.SQL, data.tt_select)
 
         # 5. non-keyword with invalid value
@@ -74,7 +74,32 @@ class SQLTest(unittest.TestCase):
 
         # 6. keyword order_by
         self.assertEqual(
-            str(ds.build({'order_by': {'desc': 'name'}},
+            str(ds.build({'order_by': 'name.desc'},
+                         ds.sql.SQL, data.tt_select)),
+            str(data.tt_select.order_by(data.test_table.c.name.desc())))
+
+        self.assertEqual(
+            str(ds.build({'order_by': 'name.asc'},
+                         ds.sql.SQL, data.tt_select)),
+            str(data.tt_select.order_by(data.test_table.c.name.asc())))
+
+        self.assertEqual(
+            str(ds.build({'order_by': '+name'},
+                         ds.sql.SQL, data.tt_select)),
+            str(data.tt_select.order_by(data.test_table.c.name.asc())))
+
+        self.assertEqual(
+            str(ds.build({'order_by': '-name'},
+                         ds.sql.SQL, data.tt_select)),
+            str(data.tt_select.order_by(data.test_table.c.name.desc())))
+
+        self.assertEqual(
+            str(ds.build({'order_by': 'asc(name)'},
+                         ds.sql.SQL, data.tt_select)),
+            str(data.tt_select.order_by(data.test_table.c.name.asc())))
+
+        self.assertEqual(
+            str(ds.build({'order_by': 'desc(name)'},
                          ds.sql.SQL, data.tt_select)),
             str(data.tt_select.order_by(data.test_table.c.name.desc())))
 
@@ -178,7 +203,7 @@ class SQLTest(unittest.TestCase):
 
         # test non restricted select with single order by
         self.assertEqual(
-            str(ds.sql.SQL.build(data.tt_select, {'order_by': {'desc': 'name'}})),
+            str(ds.sql.SQL.build(data.tt_select, {'order_by': 'name.desc'})),
             str(data.tt_select.order_by(data.test_table.c.name.desc()))
         )
 
@@ -190,7 +215,7 @@ class SQLTest(unittest.TestCase):
 
         # test restricted select with single order by
         with self.assertRaises(ds.sql.FilterFormatError):
-            ds.sql.SQL.build(data.tt_select, {'order_by': {'desc': 'name'}}, filter_model=restriction)
+            ds.sql.SQL.build(data.tt_select, {'order_by': 'name.desc'}, filter_model=restriction)
 
         # test restricted select
         with self.assertRaises(ds.sql.InvalidOperatorError):
@@ -207,7 +232,7 @@ class SQLTest(unittest.TestCase):
 
         # test restricted select with single order by
         self.assertEqual(
-            str(ds.sql.SQL.build(data.st_tt_select, {'order_by': {'desc': 'name'}}, filter_model=restriction)),
+            str(ds.sql.SQL.build(data.st_tt_select, {'order_by': 'name.desc'}, filter_model=restriction)),
             str(data.st_tt_select.order_by(data.test_table.c.name.desc()))
         )
 
@@ -218,8 +243,8 @@ class SQLTest(unittest.TestCase):
         )
 
         # test invalid order by column
-        with self.assertRaises(ds.sql.FilterFormatError):
-            ds.sql.SQL.build(data.tt_select, {'order_by': {'desc': 'value'}}, filter_model=restriction)
+        with self.assertRaises(ds.sql.InvalidRestrictionModel):
+            ds.sql.SQL.build(data.tt_select, {'order_by': 'name.desc'}, filter_model=restriction)
 
         # invalid restriction model
         class InvalidRestriction(BaseModel):
@@ -252,7 +277,7 @@ class SQLTest(unittest.TestCase):
         restriction = InvalidOrderByColumns()
 
         with self.assertRaises(ds.sql.InvalidRestrictionModel):
-            ds.sql.SQL.build(data.tt_select, {'order_by': {'desc': 'name'}}, filter_model=restriction)
+            ds.sql.SQL.build(data.tt_select, {'order_by': 'name.desc'}, filter_model=restriction)
 
         class NonExistentCol(BaseModel):
             invalid: list[str] = ['eq', 'ne']
@@ -262,6 +287,25 @@ class SQLTest(unittest.TestCase):
         with self.assertRaises(ds.sql.InvalidRestrictionModel):
             ds.sql.SQL.build(data.tt_select, {'invalid': {'eq': 'John'}}, filter_model=restriction)
 
+    def test_multiple_order_by(self):
+        import src.siphon as ds
+
+        # test multiple order by's
+        self.assertEqual(
+            str(ds.build({'order_by': ['name.desc', 'age.asc']},
+                         ds.sql.SQL, data.tt_select)),
+            str(data.tt_select.order_by(data.test_table.c.name.desc(), data.test_table.c.age.asc())))
+        
+        # test multiple order by's with invalid column
+        with self.assertRaises(ds.sql.FilterColumnError):
+            ds.build({'order_by': ['name.desc', 'invalid.asc']},
+                     ds.sql.SQL, data.tt_select)
+            
+        # test multiple order by's with invalid operator
+        with self.assertRaises(ds.sql.InvalidValueError):
+            ds.build({'order_by': ['name.desc', 'age.invalid']},
+                     ds.sql.SQL, data.tt_select)
+            
 
 if __name__ == "__main__":
     unittest.main()

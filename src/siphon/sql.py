@@ -2,6 +2,7 @@ from .base import QueryBuilder, FilterFormatError, FilterColumnError, InvalidOpe
 import sqlalchemy as sa
 import typing as t
 from pydantic import BaseModel, model_validator, ValidationError
+import re
 
 
 class SqlColumnFilter(BaseModel):
@@ -50,18 +51,48 @@ class RestrictedFilter(SqlColumnFilter):
 
 
 class SqlOrderFilter(BaseModel):
-    # TODO can be also list of strings
-    asc: str = None
-    desc: str = None
+    direction: str = None
+    column: str = None
 
     @model_validator(mode='after')
     def check_values(self):
-        if self.asc is None and self.desc is None:
-            raise ValueError("Either asc or desc must be set")
-        # NOTE not supporting multiple order by columns
-        if self.asc is not None and self.desc is not None:
-            raise FilterFormatError("Only one of asc or desc can be set")
-        return self
+        if self.direction is None or self.column is None:
+            raise ValueError("Both direction and column must be set")
+
+    @classmethod
+    def parse(cls, data: str | list[str]) -> list['SqlOrderFilter']:
+        """
+        Parse the order_by string
+
+        :param data: The string to parse
+
+        :raises InvalidValueError: If the string is invalid
+
+        :return: The parsed string
+        """
+        direction_options = {
+            'asc': 'asc',
+            'desc': 'desc',
+            '+': 'asc',
+            '-': 'desc'
+        }
+        if not isinstance(data, (str, list)):
+            raise FilterFormatError(
+                f"Invalid value for order_by: {data} - expected string, one of (asc|desc)(<column>), (+|-)(<column>), (<column>).(asc|desc)")
+        if isinstance(data, str):
+            data = [data]
+        parsed_data = []
+        for item in data:
+            if match := re.match(r'(asc|desc)\((.+)\)', item):
+                parsed_data.append(cls(direction=match.group(1), column=match.group(2)))
+            elif match := re.match(r'(\+|-)(.+)', item):
+                parsed_data.append(cls(direction=direction_options[match.group(1)], column=match.group(2)))
+            elif match := re.match(r'(.+)\.(asc|desc)', item):
+                parsed_data.append(cls(direction=direction_options[match.group(2)], column=match.group(1)))
+            else:
+                raise InvalidValueError(
+                    f"Invalid value for order_by: {item} - expected one of (asc|desc)(<column>), (+|-)(<column>), (<column>).(asc|desc)")
+        return parsed_data
 
     def validate_against_query(self, query: sa.Select):
         """
@@ -71,19 +102,13 @@ class SqlOrderFilter(BaseModel):
 
         :raises FilterColumnError: If the filter has invalid columns
         """
-        all_ordered_columns = self.all_ordered_columns()
-        for set_column in all_ordered_columns:
-            if set_column not in query.exported_columns:
-                raise FilterColumnError(
-                    f"Invalid column: {set_column}")
-
-    def all_ordered_columns(self) -> set[str]:
-        column = self.asc or self.desc
-        return set([column])
+        if self.column not in query.exported_columns:
+            raise FilterColumnError(
+                f"Invalid column: {self.column} not found in select statement")
 
 
 class KeywordFilter(BaseModel):
-    order_by: SqlOrderFilter = None
+    order_by: list = None
     limit: int = None
     offset: int = None
 
@@ -93,7 +118,7 @@ class SQL(QueryBuilder):
     SQL query builder
     """
     KW = {
-        'order_by': lambda data: SqlOrderFilter(**data),
+        'order_by': SqlOrderFilter.parse,
         'limit': int,
         'offset': int
     }
@@ -110,7 +135,7 @@ class SQL(QueryBuilder):
         :raises InvalidOperatorError: If the model has an invalid operator
         """
         keyword_validation = {
-            'order_by': (list, lambda x: SqlOrderFilter(**x[0]).all_ordered_columns().issubset(x[1])),
+            'order_by': (list, lambda x: set([item.column for item in SqlOrderFilter.parse(x[0])]).issubset(x[1])),
             'limit': (bool, lambda x: x[1]),
             'offset': (bool, lambda x: x[1])
         }
@@ -205,8 +230,10 @@ class SQL(QueryBuilder):
             for filter_key, filter_body in filter_columns.items():
                 if filter_key in SQL.KW:
                     keyword_item = SQL.KW[filter_key](filter_body)
-                    if isinstance(keyword_item, SqlOrderFilter):
-                        keyword_item.validate_against_query(query)
+                    if isinstance(
+                            keyword_item, list) and all(
+                            [isinstance(item, SqlOrderFilter) for item in keyword_item]):
+                        _ = [item.validate_against_query(query) for item in keyword_item]
                     parsed_keywords[filter_key] = keyword_item
                 else:
                     filter_item = SqlColumnFilter(**filter_body)
@@ -217,7 +244,8 @@ class SQL(QueryBuilder):
                     filter_item.validate_against_query(
                         query.exported_columns[filter_key])
                     parsed_filter[filter_key] = filter_item
-        return parsed_filter, KeywordFilter(**parsed_keywords)
+        keyword_data = KeywordFilter(**parsed_keywords)
+        return parsed_filter, keyword_data
 
     @staticmethod
     def validate_filter_model_columns(
@@ -319,7 +347,7 @@ class SQL(QueryBuilder):
         return getattr(cls, kw)(stm, value)
 
     @staticmethod
-    def order_by(stm: sa.Select, value: SqlOrderFilter) -> sa.Select:
+    def order_by(stm: sa.Select, values: list[SqlOrderFilter]) -> sa.Select:
         """
         Apply an order_by to a statement
 
@@ -334,18 +362,8 @@ class SQL(QueryBuilder):
             'asc': sa.asc,
             'desc': sa.desc
         }
-        ascending_columns = value.asc if value.asc is not None else []
-        ascending_columns = ascending_columns if isinstance(
-            ascending_columns, list) else [ascending_columns]
-
-        descending_columns = value.desc if value.desc is not None else []
-        descending_columns = descending_columns if isinstance(
-            descending_columns, list) else [descending_columns]
-
-        for column in ascending_columns:
-            stm = stm.order_by(ordering['asc'](column))
-        for column in descending_columns:
-            stm = stm.order_by(ordering['desc'](column))
+        for order_instance in values:
+            stm = stm.order_by(ordering[order_instance.direction](stm.exported_columns[order_instance.column]))
         return stm
 
     @staticmethod
