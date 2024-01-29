@@ -349,6 +349,14 @@ class SQLTest(unittest.TestCase):
             str(data.st_tt_select.where(data.test_table.c.name == 'John'))
         )
 
+        # test restricted select while ignoring extra params resulting in empty filter
+        self.assertEqual(
+            str(ds.sql.SQL.build(
+                data.st_tt_select, {'value': {'eq': 'extra'}},
+                filter_model=restriction, ignore_extra_fields=True)),
+            str(data.st_tt_select)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
