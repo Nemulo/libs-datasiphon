@@ -295,17 +295,60 @@ class SQLTest(unittest.TestCase):
             str(ds.build({'order_by': ['name.desc', 'age.asc']},
                          ds.sql.SQL, data.tt_select)),
             str(data.tt_select.order_by(data.test_table.c.name.desc(), data.test_table.c.age.asc())))
-        
+
         # test multiple order by's with invalid column
         with self.assertRaises(ds.sql.FilterColumnError):
             ds.build({'order_by': ['name.desc', 'invalid.asc']},
                      ds.sql.SQL, data.tt_select)
-            
+
         # test multiple order by's with invalid operator
         with self.assertRaises(ds.sql.InvalidValueError):
             ds.build({'order_by': ['name.desc', 'age.invalid']},
                      ds.sql.SQL, data.tt_select)
-            
+
+    def test_ignore_extra_param(self):
+        import src.siphon as ds
+
+        class AdvancedUserRestriction(BaseModel):
+            name: list[str] = ['eq', 'ne']
+            age: list[str] = ['eq', 'ne', 'in_']
+            order_by: list[str] = ['name', 'age']
+            limit: bool = True
+
+        restriction = AdvancedUserRestriction()
+
+        # test restricted select while not ignoring extra params
+        with self.assertRaises(ds.sql.FilterFormatError):
+            ds.sql.SQL.build(
+                data.st_tt_select, {'name': {'eq': 'John'},
+                                    'extra': {'eq': 'extra'}},
+                filter_model=restriction)
+
+        # test restricted select while ignoring extra params
+            self.assertEqual(
+                str(ds.sql.SQL.build(
+                    data.st_tt_select, {'name': {'eq': 'John'},
+                                        'extra': {'eq': 'extra'}},
+                    filter_model=restriction, ignore_extra_fields=True)),
+                str(data.st_tt_select.where(data.test_table.c.name == 'John'))
+            )
+
+        # test restricted select while not ignoring extra params although its valid column
+        with self.assertRaises(ds.sql.FilterFormatError):
+            ds.sql.SQL.build(
+                data.st_tt_select, {'name': {'eq': 'John'},
+                                    'value': {'eq': 'extra'}},
+                filter_model=restriction)
+
+        # test restricted select while ignoring extra params although its valid column
+        self.assertEqual(
+            str(ds.sql.SQL.build(
+                data.st_tt_select, {'name': {'eq': 'John'},
+                                    'value': {'eq': 'extra'}},
+                filter_model=restriction, ignore_extra_fields=True)),
+            str(data.st_tt_select.where(data.test_table.c.name == 'John'))
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
