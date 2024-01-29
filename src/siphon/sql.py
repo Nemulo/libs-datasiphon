@@ -124,16 +124,21 @@ class SQL(QueryBuilder):
     }
 
     @staticmethod
-    def validate_filter_model_structure(input_filter: dict, filter_model: BaseModel):
+    def validate_filter_model_structure(
+            input_filter: dict, filter_model: BaseModel, ignore_extra: bool = False) -> dict:
         """
         Validate the format of the model
 
         :param model: The model to validate
         :param filter_model: The model to validate against (allowed fields for filter)
+        :param ignore_extra: Whether to ignore extra fields instead of raising an error
 
         :raises FilterFormatError: If the model has an invalid format
         :raises InvalidOperatorError: If the model has an invalid operator
+
+        :returns validated filter
         """
+        validated_filter = {}
         keyword_validation = {
             'order_by': (list, lambda x: set([item.column for item in SqlOrderFilter.parse(x[0])]).issubset(x[1])),
             'limit': (bool, lambda x: x[1]),
@@ -141,6 +146,8 @@ class SQL(QueryBuilder):
         }
         for col_name, filter_body in input_filter.items():
             if col_name not in filter_model.model_fields.keys():
+                if ignore_extra:
+                    continue
                 raise FilterFormatError(
                     f'Column {col_name} is not allowed in filter model')
             if col_name in keyword_validation:
@@ -157,7 +164,9 @@ class SQL(QueryBuilder):
                 if not column_evaluation:
                     raise FilterFormatError(
                         f'Invalid value for keyword: {col_name} -> restriction: {eval_pair[1]} not met')
+                validated_filter[col_name] = filter_body
                 continue
+
             model_body = getattr(filter_model, col_name)
             if not isinstance(model_body, (list, type(None))):
                 raise InvalidRestrictionModel(
@@ -167,6 +176,8 @@ class SQL(QueryBuilder):
                 if not set(model_body).issubset(set(SQL.OPS)):
                     raise InvalidOperatorError(
                         f'Invalid operator in filter model: {set(model_body) - set(SQL.OPS)}')
+            validated_filter[col_name] = filter_body
+        return validated_filter
 
     @staticmethod
     def validate_filter_structure(filter_input: dict):
@@ -193,7 +204,8 @@ class SQL(QueryBuilder):
     def validate_filter_columns(
         filter_columns: dict,
         query: sa.Select,
-        filter_model: BaseModel = None
+        filter_model: BaseModel = None,
+        ignore_extra: bool = False
     ) -> tuple[dict[str, RestrictedFilter], KeywordFilter]:
         """
         Validate the columns of the model against the columns of the statement
@@ -211,9 +223,10 @@ class SQL(QueryBuilder):
         parsed_filter = {}
         parsed_keywords = {}
         if filter_model is not None:
-            SQL.validate_filter_model_structure(filter_columns, filter_model)
+            processed_filter = SQL.validate_filter_model_structure(
+                filter_columns, filter_model, ignore_extra=ignore_extra)
             SQL.validate_filter_model_columns(filter_model, query)
-            for filter_key, filter_body in filter_columns.items():
+            for filter_key, filter_body in processed_filter.items():
                 if filter_key in SQL.KW:
                     keyword_item = SQL.KW[filter_key](filter_body)
                     if isinstance(keyword_item, SqlOrderFilter):
@@ -277,7 +290,7 @@ class SQL(QueryBuilder):
                 f"Invalid column: {set(data) - set(query.selected_columns.keys())} not found in select statement")
 
     @classmethod
-    def build(cls, query: sa.Select, qs_filter: dict, filter_model: BaseModel = None) -> sa.Select:
+    def build(cls, query: sa.Select, qs_filter: dict, filter_model: BaseModel = None, ignore_extra_fields: bool = False) -> sa.Select:
         """
         Build a SQL query from a model
 
@@ -296,7 +309,8 @@ class SQL(QueryBuilder):
             raise TypeError(f"Invalid type: {type(query)}")
 
         cls.validate_filter_structure(qs_filter)
-        filtered_columns, keyword_attributes = cls.validate_filter_columns(qs_filter, query, filter_model=filter_model)
+        filtered_columns, keyword_attributes = cls.validate_filter_columns(
+            qs_filter, query, filter_model=filter_model, ignore_extra=ignore_extra_fields)
         for column_name, filters_ in filtered_columns.items():
             for operation in filters_.model_fields_set:
                 query = query.where(cls._op(operation)(

@@ -5,6 +5,11 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2024-01-29
+
+- added option `ignore_extra_fields` kwarg(defaults to `False`) to `sql.SQL.build` method to ignore extra fields in `filters` argument when using restriction model
+- method `sql.SQL.validate_filter_columns` now instead of 'only validating' returns `dict` of processed filter items (because of `ignore_extra_fields` option)
+
 ## [0.1.1] - 2024-01-25
 
 - changed the way how `SQL` backend handles `order_by` keyword argument: now accepts `str` and `list` of `str` (instead of `dict` and `list` of `dict`) in following format options:
