@@ -357,6 +357,35 @@ class SQLTest(unittest.TestCase):
             str(data.st_tt_select)
         )
 
+        # test restricted select while ignoring extra params for potentionally bad format of filter
+        with self.assertRaises(ds.base.FilterFormatError):
+            str(ds.sql.SQL.build(
+                data.st_tt_select, {'value': 'ok'},
+                filter_model=restriction, ignore_extra_fields=True))
+
+    def test_strict_filtering(self):
+        import src.siphon as ds
+
+        # test strict (by default)
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.tt_select, {'name': {'eq': 'John'}})),
+            str(data.tt_select.where(data.test_table.c.name == 'John'))
+        )
+
+        with self.assertRaises(ds.sql.FilterFormatError):
+            ds.sql.SQL.build(data.tt_select, {'name': "John"})
+
+        # test not strict
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.tt_select, {'name': "John"}, strict=False)),
+            str(data.tt_select)
+        )
+
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.tt_select, {'name': {'eq': 'John'}, "age": 20}, strict=False)),
+            str(data.tt_select.where(data.test_table.c.name == 'John'))
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

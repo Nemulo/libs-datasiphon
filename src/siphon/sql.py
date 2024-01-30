@@ -180,7 +180,7 @@ class SQL(QueryBuilder):
         return validated_filter
 
     @staticmethod
-    def validate_filter_structure(filter_input: dict):
+    def validate_filter_structure(filter_input: dict, strict: bool = True) -> dict:
         """
         Validate the format of the model
 
@@ -190,15 +190,20 @@ class SQL(QueryBuilder):
         :raises FilterFormatError: If the model has an invalid format
         :raises InvalidOperatorError: If the model has an invalid operator
         """
+        validated_items = {}
         for col_name, filter_body in filter_input.items():
             try:
                 if col_name in SQL.KW:
                     _ = SQL.KW[col_name](filter_body)
                 else:
                     _ = SqlColumnFilter(**filter_body)
+                validated_items[col_name] = filter_body
             except (ValidationError, TypeError):
+                if not strict:
+                    continue
                 raise FilterFormatError(
                     f"Invalid value for keyword: {col_name}")
+        return validated_items
 
     @staticmethod
     def validate_filter_columns(
@@ -290,12 +295,17 @@ class SQL(QueryBuilder):
                 f"Invalid column: {set(data) - set(query.selected_columns.keys())} not found in select statement")
 
     @classmethod
-    def build(cls, query: sa.Select, qs_filter: dict, filter_model: BaseModel = None, ignore_extra_fields: bool = False) -> sa.Select:
+    def build(
+            cls, query: sa.Select, qs_filter: dict, filter_model: BaseModel = None, ignore_extra_fields: bool = False,
+            strict: bool = True) -> sa.Select:
         """
         Build a SQL query from a model
 
         :param query: The statement to build from
         :param qs_filter: The model to build from
+        :param filter_model: The model to validate against (allowed fields for filter)
+        :param ignore_extra_fields: Whether to ignore extra fields in filter compared to filter model
+        :param strict: Whether to raise an error if the filter has invalid items or ignore them
 
         :raises TypeError: If the statement is not a Select statement
         :raises FilterFormatError: If the model has an invalid format
@@ -308,9 +318,9 @@ class SQL(QueryBuilder):
         if not isinstance(query, sa.Select):
             raise TypeError(f"Invalid type: {type(query)}")
 
-        cls.validate_filter_structure(qs_filter)
+        validated_filter = cls.validate_filter_structure(qs_filter, strict=strict)
         filtered_columns, keyword_attributes = cls.validate_filter_columns(
-            qs_filter, query, filter_model=filter_model, ignore_extra=ignore_extra_fields)
+            validated_filter, query, filter_model=filter_model, ignore_extra=ignore_extra_fields)
         for column_name, filters_ in filtered_columns.items():
             for operation in filters_.model_fields_set:
                 query = query.where(cls._op(operation)(
