@@ -5,6 +5,13 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+### [0.2.0] - 2024-02-26
+
+- Removed support for `ignore_extra_fields` and `strict` options in `sql.SQL.build` method 
+- added feature for infinite nesting - using `junctions` - AND/OR operators for sql queries - allowing advanced filtering and grouped clauses
+- refactored validation of filter structure and columns, and restriction models
+- added base class which has to be used when creating custom restriction models
+
 ## [0.1.3] - 2024-01-30
 
 - added option `strict` kwarg (defaults to `True`) to `sql.SQL.build` method to ignore fields in filter that don't correspond to expected `FORMAT` - does not apply to `ignore_extra_fields` option
