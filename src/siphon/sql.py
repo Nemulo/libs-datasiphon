@@ -132,11 +132,11 @@ class RestrictionModel(BaseModel):
             # this validation is strictly for user error - if it happens, it's user error
             if field_info.annotation != list[str]:
                 raise ValueError(
-                    f"Invalid type: {field_info.default_factory}, required: list of operators (list[str])")
+                    f"Invalid type: {field_info.annotation} for {field_info}, required: list of operators (list[str])")
         for keyword_field, field_info in self.sql_keywords.items():
             if field_info.annotation != SQL.__sql_kwargs__[keyword_field]:
                 raise ValueError(
-                    f"Invalid type: {field_info.default_factory}, required: {SQL.__sql_kwargs__[keyword_field]}")
+                    f"Invalid type: {field_info.annotation} for {field_info}, required: {SQL.__sql_kwargs__[keyword_field]}")
 
 
 class FilterBuilder:

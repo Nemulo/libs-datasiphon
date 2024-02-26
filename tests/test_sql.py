@@ -251,6 +251,25 @@ class SQLTest(unittest.TestCase):
     def test_restricted_inputs(self):
         import src.siphon as ds
 
+        # simple restriction with no operators
+
+        class SimpleUserRestriction(ds.sql.RestrictionModel):
+            name: list[str] = []
+
+        restriction = SimpleUserRestriction()
+        with self.assertRaises(ds.sql.FilterColumnError):
+            ds.sql.SQL.build(data.tt_select, {'age': {'eq': 20}}, filter_model=restriction)
+
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.tt_select, {'name': {'eq': 'John'}}, filter_model=restriction)),
+            str(data.tt_select.where(data.test_table.c.name == 'John'))
+        )
+
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.tt_select, {'name': {'in_': ['John', 'Alex']}}, filter_model=restriction)),
+            str(data.tt_select.where(data.test_table.c.name.in_(['John', 'Alex'])))
+        )
+
         # restrictions on filters
         class BaseUserRestriction(ds.sql.RestrictionModel):
             name: list[str] = ['eq', 'ne']
