@@ -2,6 +2,7 @@ import unittest
 import sys
 import data
 from pydantic import BaseModel
+import sqlalchemy as sa
 sys.path.append(".")
 
 # TODO support for ignore and strict keyword deprecated
@@ -424,6 +425,42 @@ class SQLTest(unittest.TestCase):
             str(data.tt_select.where(
                 (data.test_table.c.name == 'John'))
                 )
+        )
+
+        # test extremely nested junction
+        self.assertEqual(
+            str(ds.sql.SQL.build(
+                data.tt_select,
+                {
+                    'or': {
+                        'name': {
+                            'or': {
+                                'and': {
+                                    'eq': 'John',
+                                    'ne': 'John'
+                                },
+                                'gt': 'Alex'
+                            },
+                            'eq': 'John'
+                        },
+                        'age': {'eq': 20}
+                    }
+                },
+            )),
+            str(data.tt_select.where(
+                sa.or_(
+                    sa.or_(
+                        sa.and_(
+                            data.test_table.c.name == 'John',
+                            data.test_table.c.name != 'John'
+                        ),
+                        data.test_table.c.name > 'Alex'
+                    ),
+                    data.test_table.c.name == 'John',
+                    data.test_table.c.age == 20
+                )
+            )
+            )
         )
 
 
