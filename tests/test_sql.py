@@ -2,7 +2,10 @@ import unittest
 import sys
 import data
 from pydantic import BaseModel
+import sqlalchemy as sa
 sys.path.append(".")
+
+# TODO support for ignore and strict keyword deprecated
 
 
 class SQLTest(unittest.TestCase):
@@ -12,151 +15,182 @@ class SQLTest(unittest.TestCase):
 
         # Test filtering - format
         # 1. not a select
-        with self.assertRaises(TypeError):
-            ds.build({'name': {'eq': 'John'}}, ds.sql.SQL, data.test_table)
+        with self.assertRaises(ds.base.SiphonError):
+            ds.sql.SQL.build(
+                data.test_table,
+                {'name': {'eq': 'John'}},
+            )
 
         # 2. keyword with invalid value
         with self.assertRaises(ds.sql.FilterFormatError):
-            ds.build({'limit': {'eq': 1}}, ds.sql.SQL, data.tt_select)
+            ds.sql.SQL.build(
+                data.tt_select,
+                {'limit': 'John'},
+            )
 
         # 3. keyword order_by with invalid value
-        with self.assertRaises(ds.sql.FilterFormatError):
-            ds.build({'order_by': {'eq': 1}}, ds.sql.SQL, data.tt_select)
-
-        # 4. keyword order_by with invalid value
         with self.assertRaises(ds.sql.InvalidValueError):
-            ds.build({'order_by': 'name'}, ds.sql.SQL, data.tt_select)
+            ds.sql.SQL.build(
+                data.tt_select,
+                {'order_by': 'name'},
+            )
 
         # 5. non-keyword with invalid value
         with self.assertRaises(ds.sql.FilterFormatError):
-            ds.build({'name': 'John'}, ds.sql.SQL, data.tt_select)
+            ds.sql.SQL.build(
+                data.tt_select,
+                {'name': 'John'},
+            )
 
-        # 6. non-keyword with invalid operator - now ignored invalid operations TODO
-        self.assertEqual(
-            str(ds.build({'name': {'eq': 'John', 'invalid': 'invalid'}},
-                         ds.sql.SQL, data.tt_select)),
-            str(data.tt_select.where(data.test_table.c.name == 'John')))
+        # 6. non-operator key
+
+        with self.assertRaises(ds.sql.FilterFormatError):
+            ds.sql.SQL.build(
+                data.tt_select,
+                {'name': {'invalid': 'John'}},
+            )
 
         # Test filtering - columns
         # 1. column not in select
 
         with self.assertRaises(ds.sql.FilterColumnError):
-            ds.build({'build': {'eq': 'John'}}, ds.sql.SQL, data.st_select)
+            ds.sql.SQL.build(
+                data.tt_select,
+                {'invalid': {'eq': 'John'}},
+            )
 
         # Test filtering - correct
         # 1. No filter
         self.assertEqual(
-            str(ds.build({}, ds.sql.SQL, data.tt_select)), str(data.tt_select))
+            str(ds.sql.SQL.build(data.tt_select, {})),
+            str(data.tt_select),
+        )
 
         # 2. Simple filter
         self.assertEqual(
-            str(ds.build({'name': {'eq': 'John'}},
-                ds.sql.SQL, data.tt_select)),
+            str(ds.sql.SQL.build(
+                data.tt_select,
+                {'name': {'eq': 'John'}}
+            )),
             str(data.tt_select.where(data.test_table.c.name == 'John')))
 
         # 3. Multiple filters
         self.assertEqual(
-            str(ds.build({'name': {'eq': 'John'}, 'age': {'eq': 20}},
-                         ds.sql.SQL, data.tt_select)),
+            str(ds.sql.SQL.build(
+                data.tt_select,
+                {'name': {'eq': 'John'}, 'age': {'eq': 20}})
+                ),
             str(data.tt_select.where(
                 (data.test_table.c.name == 'John') &
                 (data.test_table.c.age == 20))))
 
         # 4. keyword limit
+
         self.assertEqual(
-            str(ds.build({'limit': 3}, ds.sql.SQL, data.tt_select)),
-            str(data.tt_select.limit(3)))
+            str(ds.sql.SQL.build(data.tt_select, {'limit': 3})),
+            str(data.tt_select.limit(3))
+        )
 
         # 5. keyword offset
         self.assertEqual(
-            str(ds.build({'offset': 3}, ds.sql.SQL, data.tt_select)),
-            str(data.tt_select.offset(3)))
+            str(ds.sql.SQL.build(data.tt_select, {'offset': 3})),
+            str(data.tt_select.offset(3))
+        )
 
         # 6. keyword order_by
         self.assertEqual(
-            str(ds.build({'order_by': 'name.desc'},
-                         ds.sql.SQL, data.tt_select)),
-            str(data.tt_select.order_by(data.test_table.c.name.desc())))
+            str(ds.sql.SQL.build(
+                data.tt_select, {'order_by': 'name.desc'})),
+            str(data.tt_select.order_by(data.test_table.c.name.desc()))
+        )
 
         self.assertEqual(
-            str(ds.build({'order_by': 'name.asc'},
-                         ds.sql.SQL, data.tt_select)),
+            str(ds.sql.SQL.build(
+                data.tt_select, {'order_by': 'name.asc'})),
+            str(data.tt_select.order_by(data.test_table.c.name.asc()))
+        )
+
+        self.assertEqual(
+            str(ds.sql.SQL.build(
+                data.tt_select,
+                {'order_by': '+name'})),
             str(data.tt_select.order_by(data.test_table.c.name.asc())))
 
         self.assertEqual(
-            str(ds.build({'order_by': '+name'},
-                         ds.sql.SQL, data.tt_select)),
-            str(data.tt_select.order_by(data.test_table.c.name.asc())))
+            str(ds.sql.SQL.build(
+                data.tt_select,
+                {'order_by': '-name'})),
+            str(data.tt_select.order_by(data.test_table.c.name.desc()))
+        )
 
         self.assertEqual(
-            str(ds.build({'order_by': '-name'},
-                         ds.sql.SQL, data.tt_select)),
-            str(data.tt_select.order_by(data.test_table.c.name.desc())))
+            str(ds.sql.SQL.build(
+                data.tt_select,
+                {'order_by': 'asc(name)'})),
+            str(data.tt_select.order_by(data.test_table.c.name.asc()))
+        )
 
         self.assertEqual(
-            str(ds.build({'order_by': 'asc(name)'},
-                         ds.sql.SQL, data.tt_select)),
-            str(data.tt_select.order_by(data.test_table.c.name.asc())))
-
-        self.assertEqual(
-            str(ds.build({'order_by': 'desc(name)'},
-                         ds.sql.SQL, data.tt_select)),
-            str(data.tt_select.order_by(data.test_table.c.name.desc())))
+            str(ds.sql.SQL.build(
+                data.tt_select,
+                {'order_by': 'desc(name)'})),
+            str(data.tt_select.order_by(data.test_table.c.name.desc()))
+        )
 
         # Test every operator
         # 1. eq
 
         self.assertEqual(
-            str(ds.build({'name': {'eq': 'John'}},
-                ds.sql.SQL, data.tt_select)),
+            str(ds.sql.SQL.build(
+                data.tt_select, {'name': {'eq': 'John'}})),
             str(data.tt_select.where(data.test_table.c.name == 'John')))
 
         # 2. ne
         self.assertEqual(
-            str(ds.build({'name': {'ne': 'John'}},
-                ds.sql.SQL, data.tt_select)),
+            str(ds.sql.SQL.build(
+                data.tt_select, {'name': {'ne': 'John'}})),
             str(data.tt_select.where(data.test_table.c.name != 'John')))
 
         # 3. gt
         self.assertEqual(
-            str(ds.build({'age': {'gt': 20}}, ds.sql.SQL, data.tt_select)),
+            str(ds.sql.SQL.build(
+                data.tt_select, {'age': {'gt': 20}})),
             str(data.tt_select.where(data.test_table.c.age > 20)))
 
         # 4. ge
         self.assertEqual(
-            str(ds.build({'age': {'ge': 20}}, ds.sql.SQL, data.tt_select)),
+            str(ds.sql.SQL.build(
+                data.tt_select, {'age': {'ge': 20}})),
             str(data.tt_select.where(data.test_table.c.age >= 20)))
 
         # 5. lt
         self.assertEqual(
-            str(ds.build({'age': {'lt': 20}}, ds.sql.SQL, data.tt_select)),
+            str(ds.sql.SQL.build(
+                data.tt_select, {'age': {'lt': 20}})),
             str(data.tt_select.where(data.test_table.c.age < 20)))
 
         # 6. le
         self.assertEqual(
-            str(ds.build({'age': {'le': 20}}, ds.sql.SQL, data.tt_select)),
+            str(ds.sql.SQL.build(
+                data.tt_select, {'age': {'le': 20}})),
             str(data.tt_select.where(data.test_table.c.age <= 20)))
 
-        # 7. in
+        # 7. in_
         self.assertEqual(
-            str(ds.build({'age': {'in_': [20, 21]}},
-                ds.sql.SQL, data.tt_select)),
+            str(ds.sql.SQL.build(
+                data.tt_select, {'age': {'in_': [20, 21]}})),
             str(data.tt_select.where(data.test_table.c.age.in_([20, 21]))))
 
         # 8. nin
         self.assertEqual(
-            str(ds.build({'age': {'nin': [20, 21]}},
-                ds.sql.SQL, data.tt_select)),
+            str(ds.sql.SQL.build(
+                data.tt_select, {'age': {'nin': [20, 21]}})),
             str(data.tt_select.where(~data.test_table.c.age.in_([20, 21]))))
 
-        # test filter not correct type
+        # test filter value is of incorrect type
         with self.assertRaises(ds.sql.InvalidValueError):
-            ds.build({'name': {'eq': 1}}, ds.sql.SQL, data.tt_select)
-
-        # test multiple order by's
-        with self.assertRaises(ds.sql.FilterFormatError):
-            ds.build({'order_by': {'desc': 'name', 'asc': 'age'}},
-                     ds.sql.SQL, data.tt_select)
+            ds.sql.SQL.build(
+                data.tt_select, {'age': {'eq': '20'}})
 
     def test_advanced_select(self):
         import src.siphon as ds
@@ -164,23 +198,25 @@ class SQLTest(unittest.TestCase):
         # test combined tables - should raise error since value is of type string
         # NOTE functionality updated v 0.1.0
         with self.assertRaises(ds.sql.InvalidValueError):
-            ds.build({'name': {'eq': 'John'}, 'value': {'in_': [1, 2]}},
-                     ds.sql.SQL, data.st_tt_select)
+            ds.sql.SQL.build(
+                data.st_tt_select, {'value': {'in_': [1, 2, 3]}},
+            )
 
         # combined tables correct select
         self.assertEqual(
-            str(ds.build({'name': {'eq': 'John'}, 'value': {'in_': ['abc', 'def']}},
-                         ds.sql.SQL, data.st_tt_select)),
+            str(ds.sql.SQL.build(
+                data.st_tt_select, {'value': {'in_': ['abc', 'def']}, 'name': {'eq': 'John'}})),
             str(data.st_tt_select.where(
-                data.test_table.c.name == 'John',
-                data.secondary_test.c.value.in_(['abc', 'def']))
-                )
-        ),
+                (data.secondary_test.c.value.in_(['abc', 'def'])) &
+                (data.test_table.c.name == 'John')))
+        )
+
         # test base table select
         self.assertEqual(
-            str(ds.build({'name': {'eq': 'John'}},
-                         ds.sql.SQL, data.base_select)),
-            str(data.base_select.where(data.test_table.c.name == 'John')))
+            str(ds.sql.SQL.build(
+                data.base_select, {'name': {'eq': 'John'}})),
+            str(data.base_select.where(data.test_table.c.name == 'John'))
+        )
 
     def test_invalid_inputs(self):
         import src.siphon as ds
@@ -188,40 +224,70 @@ class SQLTest(unittest.TestCase):
         # test invalid inputs
         # parsed dict with invalid operators
         with self.assertRaises(ds.base.SiphonError):
-            ds.build({'name': {'invalid': 'John'}}, ds.sql.SQL, data.tt_select)
+            ds.sql.SQL.build({'name': {'invalid': 'John'}}, ds.sql.SQL, data.tt_select)
 
         # parsed dict which is not nested
         with self.assertRaises(ds.base.SiphonError):
-            ds.build({'name': 'John'}, ds.sql.SQL, data.tt_select)
+            ds.sql.SQL.build({'name': 'John'}, ds.sql.SQL, data.tt_select)
 
         # mistyped input
         with self.assertRaises(ds.base.SiphonError):
-            ds.build({'name[eq': 'John'}, ds.sql.SQL, data.tt_select)
+            ds.sql.SQL.build({'name[eq': 'John'}, ds.sql.SQL, data.tt_select)
+
+        # order by is not list
+        with self.assertRaises(ds.sql.FilterFormatError):
+            ds.sql.SQL.build(
+                data.tt_select,
+                {'order_by': {"name.desc": True}},
+            )
+
+        # in is not actaully a list
+        with self.assertRaises(ds.sql.InvalidValueError):
+            ds.sql.SQL.build(
+                data.tt_select,
+                {'age': {'in_': 20}},
+            )
 
     def test_restricted_inputs(self):
         import src.siphon as ds
 
-        # test non restricted select with single order by
+        # simple restriction with no operators
+
+        class SimpleUserRestriction(ds.sql.RestrictionModel):
+            name: list[str] = []
+
+        restriction = SimpleUserRestriction()
+        with self.assertRaises(ds.sql.FilterColumnError):
+            ds.sql.SQL.build(data.tt_select, {'age': {'eq': 20}}, filter_model=restriction)
+
         self.assertEqual(
-            str(ds.sql.SQL.build(data.tt_select, {'order_by': 'name.desc'})),
-            str(data.tt_select.order_by(data.test_table.c.name.desc()))
+            str(ds.sql.SQL.build(data.tt_select, {'name': {'eq': 'John'}}, filter_model=restriction)),
+            str(data.tt_select.where(data.test_table.c.name == 'John'))
+        )
+
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.tt_select, {'name': {'in_': ['John', 'Alex']}}, filter_model=restriction)),
+            str(data.tt_select.where(data.test_table.c.name.in_(['John', 'Alex'])))
         )
 
         # restrictions on filters
-        class BaseUserRestriction(BaseModel):
+        class BaseUserRestriction(ds.sql.RestrictionModel):
             name: list[str] = ['eq', 'ne']
 
         restriction = BaseUserRestriction()
 
         # test restricted select with single order by
-        with self.assertRaises(ds.sql.FilterFormatError):
+        with self.assertRaises(ds.sql.FilterColumnError):
             ds.sql.SQL.build(data.tt_select, {'order_by': 'name.desc'}, filter_model=restriction)
+
+        with self.assertRaises(ds.sql.FilterColumnError):
+            ds.sql.SQL.build(data.tt_select, {'age': {'eq': 20}}, filter_model=restriction)
 
         # test restricted select
         with self.assertRaises(ds.sql.InvalidOperatorError):
             ds.sql.SQL.build(data.tt_select, {'name': {'in_': 'John'}}, filter_model=restriction)
 
-        class AdvancedUserRestriction(BaseModel):
+        class AdvancedUserRestriction(ds.sql.RestrictionModel):
             name: list[str] = ['eq', 'ne']
             age: list[str] = ['eq', 'ne', 'in_']
             value: list[str] = ['in_']
@@ -242,28 +308,20 @@ class SQLTest(unittest.TestCase):
             str(data.st_tt_select.where(data.test_table.c.name == 'John'))
         )
 
+        # test restricted limit
+        class LimitRestriction(ds.sql.RestrictionModel):
+            limit: bool = False
+
+        restriction = LimitRestriction()
+
+        with self.assertRaises(ds.sql.FilterColumnError):
+            ds.sql.SQL.build(data.tt_select, {'limit': 3}, filter_model=restriction)
+
         # test invalid order by column
-        with self.assertRaises(ds.sql.InvalidRestrictionModel):
+        with self.assertRaises(ds.sql.FilterColumnError):
             ds.sql.SQL.build(data.tt_select, {'order_by': 'name.desc'}, filter_model=restriction)
 
-        # invalid restriction model
-        class InvalidRestriction(BaseModel):
-            name: str = 'eq'
-
-        restriction = InvalidRestriction()
-
-        with self.assertRaises(ds.sql.InvalidRestrictionModel):
-            ds.sql.SQL.build(data.tt_select, {'name': {'eq': 'John'}}, filter_model=restriction)
-
-        class InvalidRestrictionKeyword(BaseModel):
-            limit: int = 10
-
-        restriction = InvalidRestrictionKeyword()
-
-        with self.assertRaises(ds.sql.InvalidRestrictionModel):
-            ds.sql.SQL.build(data.tt_select, {'limit': 10}, filter_model=restriction)
-
-        class InvalidRestrictionOperators(BaseModel):
+        class InvalidRestrictionOperators(ds.sql.RestrictionModel):
             name: list[str] = ['eq', 'ne', 'invalid']
 
         restriction = InvalidRestrictionOperators()
@@ -271,7 +329,7 @@ class SQLTest(unittest.TestCase):
         with self.assertRaises(ds.sql.InvalidOperatorError):
             ds.sql.SQL.build(data.tt_select, {'name': {'eq': 'John'}}, filter_model=restriction)
 
-        class InvalidOrderByColumns(BaseModel):
+        class InvalidOrderByColumns(ds.sql.RestrictionModel):
             order_by: list[str] = ['name', 'invalid']
 
         restriction = InvalidOrderByColumns()
@@ -279,7 +337,7 @@ class SQLTest(unittest.TestCase):
         with self.assertRaises(ds.sql.InvalidRestrictionModel):
             ds.sql.SQL.build(data.tt_select, {'order_by': 'name.desc'}, filter_model=restriction)
 
-        class NonExistentCol(BaseModel):
+        class NonExistentCol(ds.sql.RestrictionModel):
             invalid: list[str] = ['eq', 'ne']
 
         restriction = NonExistentCol()
@@ -292,61 +350,136 @@ class SQLTest(unittest.TestCase):
 
         # test multiple order by's
         self.assertEqual(
-            str(ds.build({'order_by': ['name.desc', 'age.asc']},
-                         ds.sql.SQL, data.tt_select)),
-            str(data.tt_select.order_by(data.test_table.c.name.desc(), data.test_table.c.age.asc())))
+            str(ds.sql.SQL.build(
+                data.tt_select, {'order_by': ['name.desc', 'age.asc']})),
+            str(data.tt_select.order_by(data.test_table.c.name.desc(), data.test_table.c.age.asc()))
+        )
 
         # test multiple order by's with invalid column
-        with self.assertRaises(ds.sql.FilterColumnError):
-            ds.build({'order_by': ['name.desc', 'invalid.asc']},
-                     ds.sql.SQL, data.tt_select)
+        with self.assertRaises(ds.sql.InvalidValueError):
+            ds.sql.SQL.build(
+                data.tt_select, {'order_by': ['name.desc', 'invalid']})
 
         # test multiple order by's with invalid operator
         with self.assertRaises(ds.sql.InvalidValueError):
-            ds.build({'order_by': ['name.desc', 'age.invalid']},
-                     ds.sql.SQL, data.tt_select)
+            ds.sql.SQL.build(
+                data.tt_select, {'order_by': ['name.desc', 'age.invalid']})
 
-    def test_ignore_extra_param(self):
+    def test_and_or_junctions(self):
         import src.siphon as ds
 
-        class AdvancedUserRestriction(BaseModel):
-            name: list[str] = ['eq', 'ne']
-            age: list[str] = ['eq', 'ne', 'in_']
-            order_by: list[str] = ['name', 'age']
-            limit: bool = True
-
-        restriction = AdvancedUserRestriction()
-
-        # test restricted select while not ignoring extra params
-        with self.assertRaises(ds.sql.FilterFormatError):
-            ds.sql.SQL.build(
-                data.st_tt_select, {'name': {'eq': 'John'},
-                                    'extra': {'eq': 'extra'}},
-                filter_model=restriction)
-
-        # test restricted select while ignoring extra params
-            self.assertEqual(
-                str(ds.sql.SQL.build(
-                    data.st_tt_select, {'name': {'eq': 'John'},
-                                        'extra': {'eq': 'extra'}},
-                    filter_model=restriction, ignore_extra_fields=True)),
-                str(data.st_tt_select.where(data.test_table.c.name == 'John'))
-            )
-
-        # test restricted select while not ignoring extra params although its valid column
-        with self.assertRaises(ds.sql.FilterFormatError):
-            ds.sql.SQL.build(
-                data.st_tt_select, {'name': {'eq': 'John'},
-                                    'value': {'eq': 'extra'}},
-                filter_model=restriction)
-
-        # test restricted select while ignoring extra params although its valid column
+        # simple and junction
         self.assertEqual(
             str(ds.sql.SQL.build(
-                data.st_tt_select, {'name': {'eq': 'John'},
-                                    'value': {'eq': 'extra'}},
-                filter_model=restriction, ignore_extra_fields=True)),
-            str(data.st_tt_select.where(data.test_table.c.name == 'John'))
+                data.tt_select, {'and': {'name': {'eq': 'John'}, 'age': {'eq': 20}}})
+                ),
+            str(data.tt_select.where(
+                (data.test_table.c.name == 'John') & (data.test_table.c.age == 20))
+                )
+        )
+
+        # simple or junction
+        self.assertEqual(
+            str(ds.sql.SQL.build(
+                data.tt_select, {'or': {'name': {'eq': 'John'}, 'age': {'eq': 20}}})
+                ),
+            str(data.tt_select.where(
+                (data.test_table.c.name == 'John') | (data.test_table.c.age == 20))
+                )
+        )
+
+        # test stacked and junctions - which logically results in simple junction
+        self.assertEqual(
+            str(ds.sql.SQL.build(
+                data.tt_select, {'and': {'and': {'name': {'eq': 'John'}, 'age': {'eq': 20}}}})
+                ),
+            str(data.tt_select.where(
+                (data.test_table.c.name == 'John') & (data.test_table.c.age == 20))
+                )
+        )
+
+        # test stacked or junctions - which logically results in simple junction
+        self.assertEqual(
+            str(ds.sql.SQL.build(
+                data.tt_select, {'or': {'or': {'name': {'eq': 'John'}}}})
+                ),
+            str(data.tt_select.where(
+                (data.test_table.c.name == 'John'))
+                )
+        )
+
+        # test multiple junctions on same level
+        with self.assertRaises(ds.sql.FilterFormatError):
+            ds.sql.SQL.build(
+                data.tt_select, {'and': {'name': {'eq': 'John'}}, 'or': {'age': {'eq': 20}}}
+            )
+
+        # test multiple junctions on same nested level
+        with self.assertRaises(ds.sql.FilterFormatError):
+            ds.sql.SQL.build(
+                data.tt_select, {'name': {'and': {'eq': 'John', 'ne': 'John'}, 'or': {'age': {'eq': 20}}}}
+            )
+
+        # test nested junction with missing column name
+        with self.assertRaises(ds.sql.FilterFormatError):
+            ds.sql.SQL.build(
+                data.tt_select, {'or': {'eq': 'John', 'ne': 'John'}, 'age': {'eq': 20}}
+            )
+
+        # test nested junction
+        self.assertEqual(
+            str(ds.sql.SQL.build(
+                data.tt_select, {'name': {'or': {'eq': 'John', 'ne': 'John'}}, 'age': {'eq': 20}}
+            )),
+            str(data.tt_select.where(
+                ((data.test_table.c.name == 'John') | (data.test_table.c.name != 'John')) & (data.test_table.c.age == 20))
+                )
+        )
+
+        # test nested single
+        self.assertEqual(
+            str(ds.sql.SQL.build(
+                data.tt_select, {'name': {'or': {'eq': 'John'}}}
+            )),
+            str(data.tt_select.where(
+                (data.test_table.c.name == 'John'))
+                )
+        )
+
+        # test extremely nested junction
+        self.assertEqual(
+            str(ds.sql.SQL.build(
+                data.tt_select,
+                {
+                    'or': {
+                        'name': {
+                            'or': {
+                                'and': {
+                                    'eq': 'John',
+                                    'ne': 'John'
+                                },
+                                'gt': 'Alex'
+                            },
+                            'eq': 'John'
+                        },
+                        'age': {'eq': 20}
+                    }
+                },
+            )),
+            str(data.tt_select.where(
+                sa.or_(
+                    sa.or_(
+                        sa.and_(
+                            data.test_table.c.name == 'John',
+                            data.test_table.c.name != 'John'
+                        ),
+                        data.test_table.c.name > 'Alex'
+                    ),
+                    data.test_table.c.name == 'John',
+                    data.test_table.c.age == 20
+                )
+            )
+            )
         )
 
 
