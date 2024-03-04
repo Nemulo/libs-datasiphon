@@ -282,14 +282,18 @@ class FilterBuilder:
                         if not isinstance(value, (list, tuple)):
                             raise InvalidValueError(
                                 f"Invalid value: {value} - expected list or tuple for {op}")
-                        if not all([isinstance(value, query_columns[current_key].type.python_type)
-                                    for value in value]):
+                        # instead of checking if each value has correct type, we will use constructor to do it and catch any type errors with InvalidValueError
+                        try:
+                            _ = [query_columns[current_key].type.python_type(item) for item in value]
+                        except TypeError:
                             raise InvalidValueError(
                                 f"Invalid value type for {current_key}: {value} - expected {query_columns[current_key].type.python_type}")
                     else:
-                        if not isinstance(value, query_columns[current_key].type.python_type):
+                        try:
+                            _ = query_columns[current_key].type.python_type(value)
+                        except TypeError:
                             raise InvalidValueError(
-                                f"Invalid value type for: {current_key} - expected {query_columns[current_key].type.python_type}")
+                                f"Cannot construct {current_key}'s {value=} - expected {query_columns[current_key].type.python_type}")
                 case str() as column_name:
                     if current_key is not None:
                         raise FilterFormatError(
@@ -381,40 +385,44 @@ class SQL(QueryBuilder):
 
     @staticmethod
     def eq(column: sa.Column, value: t.Any) -> sa.ColumnElement:
-        return column == value
+        return column == column.type.python_type(value)
 
     @staticmethod
     def ne(column: sa.Column, value: t.Any) -> sa.ColumnElement:
-        return column != value
+        return column != column.type.python_type(value)
 
     @staticmethod
     def gt(column: sa.Column, value: t.Any) -> sa.ColumnElement:
-        return column > value
+        return column > column.type.python_type(value)
 
     @staticmethod
     def ge(column: sa.Column, value: t.Any) -> sa.ColumnElement:
-        return column >= value
+        return column >= column.type.python_type(value)
 
     @staticmethod
     def lt(column: sa.Column, value: t.Any) -> sa.ColumnElement:
-        return column < value
+        return column < column.type.python_type(value)
 
     @staticmethod
     def le(column: sa.Column, value: t.Any) -> sa.ColumnElement:
-        return column <= value
+        return column <= column.type.python_type(value)
 
     @staticmethod
     def in_(column: sa.Column, value: t.Any) -> sa.ColumnElement:
         # last chance to sanitize the value
         if not isinstance(value, (list, tuple)):
-            value = [value]
+            value = [column.type.python_type(value)]
+        else:
+            value = [column.type.python_type(item) for item in value]
         return column.in_(value)
 
     @staticmethod
     def nin(column: sa.Column, value: t.Any) -> sa.ColumnElement:
         # last chance to sanitize the value
         if not isinstance(value, (list, tuple)):
-            value = [value]
+            value = [column.type.python_type(value)]
+        else:
+            value = [column.type.python_type(item) for item in value]
         return ~column.in_(value)
 
     @classmethod

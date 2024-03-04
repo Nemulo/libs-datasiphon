@@ -188,19 +188,25 @@ class SQLTest(unittest.TestCase):
             str(data.tt_select.where(~data.test_table.c.age.in_([20, 21]))))
 
         # test filter value is of incorrect type
-        with self.assertRaises(ds.sql.InvalidValueError):
-            ds.sql.SQL.build(
-                data.tt_select, {'age': {'eq': '20'}})
+        # NOTE functionality updated v 0.2.2 - will not raise error, str is convertable to int
+        self.assertEqual(
+            str(ds.sql.SQL.build(
+                data.tt_select, {'age': {'eq': '20'}})),
+            str(data.tt_select.where(data.test_table.c.age == 20))
+        )
 
     def test_advanced_select(self):
         import src.siphon as ds
 
         # test combined tables - should raise error since value is of type string
         # NOTE functionality updated v 0.1.0
-        with self.assertRaises(ds.sql.InvalidValueError):
-            ds.sql.SQL.build(
+        # NOTE functionality updated v 0.2.2 - will not raise error, int is convertable to string
+        self.assertEqual(
+            str(ds.sql.SQL.build(
                 data.st_tt_select, {'value': {'in_': [1, 2, 3]}},
-            )
+            )),
+            str(data.st_tt_select.where(data.secondary_test.c.value.in_(['1', '2', '3'])))
+        )
 
         # combined tables correct select
         self.assertEqual(
