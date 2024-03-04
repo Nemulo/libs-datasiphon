@@ -5,6 +5,16 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+### [0.2.2] - 2024-03-04
+
+- Validation changes: now instead of checking whether value in filter is of instance `column.type.python_type`, it uses the given `python_type` constructor to check if the value is processable by the given type
+- Operations now apply the `python_type` constructor to the value before applying the operation 
+
+
+### [0.2.1] - 2024-02-26
+
+- Added advanced tests and logging
+
 ### [0.2.0] - 2024-02-26
 
 - Removed support for `ignore_extra_fields` and `strict` options in `sql.SQL.build` method 
