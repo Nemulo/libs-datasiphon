@@ -1,10 +1,10 @@
 from . import sql, nosql, base
 import typing as t
 
-VERSION = (0, 2, 2)
-__version__ = '.'.join(map(str, VERSION))
+VERSION = (0, 2, 3)
+__version__ = ".".join(map(str, VERSION))
 
 
-t_Database = t.TypeVar('t_Database', sql.SQL, nosql.Mongo)
+t_Database = t.TypeVar("t_Database", sql.SQL, nosql.Mongo)
 
-__all__ = ['build', 'sql', 'nosql']
+__all__ = ["build", "sql", "nosql"]
