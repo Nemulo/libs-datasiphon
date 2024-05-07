@@ -9,6 +9,7 @@ class Mongo(QueryBuilder):
     """
     Mongo query builder
     """
+
     @staticmethod
     def get_arg(model: dict) -> t.Tuple[str, t.Any]:
         """
@@ -21,7 +22,7 @@ class Mongo(QueryBuilder):
         for key, value in model.items():
             if not isinstance(value, dict):
                 if key in Mongo.OPS:
-                    yield (None, {f'${key}': value})
+                    yield (None, {f"${key}": value})
                 else:
                     yield (key, value)
             else:
@@ -29,7 +30,7 @@ class Mongo(QueryBuilder):
                     if k is None:
                         yield (key, v)
                     else:
-                        yield (f'{key}.{k}', v)
+                        yield (f"{key}.{k}", v)
 
     @staticmethod
     def validate_fmt(model: dict) -> tuple[dict, dict]:
@@ -41,9 +42,7 @@ class Mongo(QueryBuilder):
         :return: The validated and transformed model
         """
         kw = Mongo.get_kw(model)
-        args = {
-            processed_key: processed_value for processed_key, processed_value in Mongo.get_arg(model)
-        }
+        args = {processed_key: processed_value for processed_key, processed_value in Mongo.get_arg(model)}
         return args, kw
 
     @staticmethod
@@ -80,8 +79,12 @@ class Mongo(QueryBuilder):
         if not isinstance(collection, pc.Collection):
             raise TypeError(f"Invalid collection: {collection}")
         parsed_model, kw = cls.validate_fmt(model)
-        cursor = collection.find(parsed_model, projection=projection).sort(
-            kw.get('order_by', {})).skip(kw.get('offset', 0)).limit(kw.get('limit', 0))
+        cursor = (
+            collection.find(parsed_model, projection=projection)
+            .sort(kw.get("order_by", {}))
+            .skip(kw.get("offset", 0))
+            .limit(kw.get("limit", 0))
+        )
         return cursor
 
     @classmethod
@@ -100,10 +103,7 @@ class Mongo(QueryBuilder):
         order_dict = {}
         if not isinstance(value, dict):
             raise FilterFormatError(f"Invalid format: order_by -> {value}")
-        ordering = {
-            'asc': 1,
-            'desc': -1
-        }
+        ordering = {"asc": 1, "desc": -1}
         try:
             for direction, col in value.items():
                 order_dict[col] = ordering[direction]

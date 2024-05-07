@@ -5,6 +5,11 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+### [0.2.3] - 2024-05-07
+
+- Added support for parsing `datetime` and `date` objects in `sql.SQL` backend from `str` format (assuming iso-format of string)
+- New class `FilterTypeParser` added to `sql.SQL` backend to return constructor for given type (e.g. `datetime`, `date`, `int`, `float`, `str`, `bool`) - now able to parse `datetime` and `date` objects from `str` format
+
 ### [0.2.2] - 2024-03-04
 
 - Validation changes: now instead of checking whether value in filter is of instance `column.type.python_type`, it uses the given `python_type` constructor to check if the value is processable by the given type

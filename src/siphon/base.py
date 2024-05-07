@@ -2,7 +2,7 @@ import typing as t
 
 
 class QueryBuilder:
-    OPS = ['eq', 'ne', 'gt', 'ge', 'lt', 'le', 'in_', 'nin']
+    OPS = ["eq", "ne", "gt", "ge", "lt", "le", "in_", "nin"]
 
     @staticmethod
     def eq(column: t.Any, value: t.Any) -> t.Any:
@@ -59,6 +59,7 @@ class InvalidOperatorError(SiphonError):
 
 class InvalidValueError(SiphonError):
     pass
+
 
 class InvalidRestrictionModel(SiphonError):
     pass
