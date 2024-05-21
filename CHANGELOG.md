@@ -4,6 +4,16 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+### [0.2.5] - 2024-05-21
+
+- removed operations as methods from `QueryBuilder` class
+and rewritten them as separate classes for more flexibility and easier extension
+- implemented `Paginationbuilder` class for rebuilding filter from query providing filter which can be adjusted
+
+
+### [0.2.4] - 2024-05-20
+
+- added helper method in `sql.SQL` backend - `is_query_paginable` - to check if query is paginable (for pointer based pagination) - based on selected columns
 
 ### [0.2.3] - 2024-05-07
 

@@ -446,6 +446,211 @@ class SQLTest(unittest.TestCase):
             str(data.timestamp_table_select.where(data.table_with_time_stamp.c.created_at == "2021-01-01T12:00:00")),
         )
 
+    def test_pointer_paginable_items(self):
+        import src.siphon as ds
+        from sqlalchemy.sql import operators
+
+        test_query = (
+            data.table_with_time_stamp.select()
+            .where(
+                sa.and_(
+                    data.table_with_time_stamp.c.created_at >= "2021-01-01T12:00:00",
+                    sa.or_(
+                        data.table_with_time_stamp.c.name == "John",
+                        data.table_with_time_stamp.c.name == "Alex",
+                    ),
+                )
+            )
+            .order_by(data.table_with_time_stamp.c.created_at.desc())
+        )
+        second_test_query = data.table_with_time_stamp.select()
+
+        # nested clauses for pointer will not be paginable
+        self.assertFalse(ds.sql.PaginationBuilder(test_query).is_query_paginable(["created_at"]))
+
+        # simple query will be paginable
+        self.assertTrue(ds.sql.PaginationBuilder(second_test_query).is_query_paginable(["created_at"]))
+
+        # if operator is eq or ne, it will not be paginable
+        self.assertFalse(
+            ds.sql.PaginationBuilder(
+                second_test_query.where(data.table_with_time_stamp.c.name == "John")
+            ).is_query_paginable(["name"])
+        )
+
+        self.assertFalse(
+            ds.sql.PaginationBuilder(
+                second_test_query.where(data.table_with_time_stamp.c.name != "John")
+            ).is_query_paginable(["name"])
+        )
+
+        # if operator is one of gt, ge etc.., it will be paginable
+        self.assertTrue(
+            ds.sql.PaginationBuilder(
+                second_test_query.where(data.table_with_time_stamp.c.name >= "John")
+            ).is_query_paginable(["name"])
+        )
+
+        self.assertTrue(
+            ds.sql.PaginationBuilder(
+                second_test_query.where(data.table_with_time_stamp.c.name < "John")
+            ).is_query_paginable(["name"])
+        )
+
+        # on single grouping, allow paginable - paginated clauses must not have eq or ne
+        # if grouping with and_ : all other where clauses except the paginated ones should be eq or ne
+        self.assertTrue(
+            ds.sql.PaginationBuilder(
+                second_test_query.where(
+                    sa.or_(
+                        data.table_with_time_stamp.c.name >= "John",
+                        data.table_with_time_stamp.c.created_at == "2024-04-05",
+                    )
+                )
+            ).is_query_paginable(["name"])
+        )
+        self.assertFalse(
+            ds.sql.PaginationBuilder(
+                second_test_query.where(
+                    sa.or_(
+                        data.table_with_time_stamp.c.name == "John",
+                        data.table_with_time_stamp.c.created_at == "2024-04-05",
+                    )
+                ),
+            ).is_query_paginable(["name"])
+        )
+
+        # test and junction
+        self.assertTrue(
+            ds.sql.PaginationBuilder(
+                second_test_query.where(
+                    sa.and_(
+                        data.table_with_time_stamp.c.name >= "John",
+                        data.table_with_time_stamp.c.created_at == "2024-04-05",
+                    )
+                )
+            ).is_query_paginable(["name"])
+        )
+        self.assertFalse(
+            ds.sql.PaginationBuilder(
+                second_test_query.where(
+                    sa.and_(
+                        data.table_with_time_stamp.c.name >= "John",
+                        data.table_with_time_stamp.c.created_at >= "2024-04-05",
+                    )
+                )
+            ).is_query_paginable(["name"])
+        )
+
+        # test multiple order by columns
+        self.assertTrue(ds.sql.PaginationBuilder(second_test_query).is_query_paginable(["name", "created_at"]))
+
+        # test multiple order by columns with filtered query
+        self.assertTrue(
+            ds.sql.PaginationBuilder(
+                second_test_query.where(
+                    sa.and_(
+                        data.table_with_time_stamp.c.name >= "John",
+                        data.table_with_time_stamp.c.created_at >= "2024-04-05",
+                    )
+                )
+            ).is_query_paginable(["created_at", "name"])
+        )
+
+        self.assertFalse(
+            ds.sql.PaginationBuilder(
+                second_test_query.where(
+                    sa.and_(
+                        data.table_with_time_stamp.c.name >= "John",
+                        data.table_with_time_stamp.c.created_at == "2024-04-05",
+                    )
+                )
+            ).is_query_paginable(["created_at", "name"])
+        )
+
+    def test_reconstruct_filter_from_clause(self):
+        import src.siphon as ds
+
+        sample_query = data.table_with_time_stamp.select().where(
+            data.table_with_time_stamp.c.name.in_(["John", "Alex"])
+        )
+
+        result = ds.sql.PaginationBuilder(sample_query).reconstruct_filter()
+
+        # verify correct result by rebuilding query from result
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.table_with_time_stamp.select(), result)),
+            str(sample_query),
+        )
+
+        second_sample_query = data.table_with_time_stamp.select().where(
+            sa.and_(
+                data.table_with_time_stamp.c.name == sa.bindparam("name"),
+                data.table_with_time_stamp.c.created_at == sa.bindparam("created_at"),
+            )
+        )
+        result = ds.sql.PaginationBuilder(second_sample_query).reconstruct_filter(
+            bindparams={"name": "John", "created_at": "2021-01-01T12:00:00"}
+        )
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.table_with_time_stamp.select(), result)),
+            str(
+                data.table_with_time_stamp.select().where(
+                    sa.and_(
+                        data.table_with_time_stamp.c.name == "John",
+                        data.table_with_time_stamp.c.created_at == "2021-01-01T12:00:00",
+                    )
+                )
+            ),
+        )
+
+        third_sample_query = data.table_with_time_stamp.select().where(
+            sa.and_(
+                data.table_with_time_stamp.c.name == sa.bindparam("name"),
+                data.table_with_time_stamp.c.created_at == sa.bindparam("created_at"),
+                sa.or_(
+                    data.table_with_time_stamp.c.name == "John",
+                    data.table_with_time_stamp.c.created_at == "2022-04-05",
+                ),
+            )
+        )
+
+        result = ds.sql.PaginationBuilder(third_sample_query).reconstruct_filter(
+            bindparams={"name": "OI", "created_at": "2021-01-01T12:00:00"}
+        )
+        # since name eq or name eq, it will be converted to name in
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.table_with_time_stamp.select(), result)),
+            str(
+                data.table_with_time_stamp.select().where(
+                    sa.and_(
+                        data.table_with_time_stamp.c.name == "OI",
+                        data.table_with_time_stamp.c.created_at == "2021-01-01T12:00:00",
+                        sa.or_(
+                            data.table_with_time_stamp.c.name == "John",
+                            data.table_with_time_stamp.c.created_at == "2022-04-05",
+                        ),
+                    )
+                )
+            ),
+        )
+
+        # test reconstruct with substitution
+        result = ds.sql.PaginationBuilder(second_sample_query).reconstruct_filter(
+            substitution={"name": {"ne": "Peter"}}, bindparams={"created_at": "2021-01-01T12:00:00"}
+        )
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.table_with_time_stamp.select(), result)),
+            str(
+                data.table_with_time_stamp.select().where(
+                    sa.and_(
+                        data.table_with_time_stamp.c.name != "Peter",
+                        data.table_with_time_stamp.c.created_at == "2021-01-01T12:00:00",
+                    )
+                )
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
