@@ -531,6 +531,10 @@ class PaginationBuilder:
         sql_operators.in_op: In_,
         sql_operators.not_in_op: Nin,
     }
+    sql_order_mapping: dict[sql_operators.OperatorType, int] = {
+        sql_operators.desc_op: 0,
+        sql_operators.asc_op: 1,
+    }
 
     def __init__(self, base_query: sa.Select):
         self.base_query = base_query
@@ -611,6 +615,8 @@ class PaginationBuilder:
                         if column not in pagination_columns and clause.operator not in [
                             sql_operators.eq,
                             sql_operators.ne,
+                            sql_operators.in_op,
+                            sql_operators.not_in_op,
                         ]:
                             return False
                 else:
@@ -708,6 +714,48 @@ class PaginationBuilder:
             )
         else:
             raise TypeError(f"Unrecognized type: {type(whereclause)}")
+
+    def retrieve_order_by(self, count: int = 1) -> tuple[int, str] | None:
+        clauses = self.base_query._order_by_clauses
+        if len(clauses) == 0:
+            return None
+        processed_clauses = []
+        for clause in clauses:
+            processed_clauses.append(self.recusively_process_order_by(clause))
+            if len(processed_clauses) == count:
+                break
+        return processed_clauses
+
+    @staticmethod
+    def recusively_process_order_by(item: t.Any) -> tuple[int, str] | None:
+        if isinstance(item, sql_elements._label_reference):
+            return PaginationBuilder.recusively_process_order_by(item.element)
+        if isinstance(item, sql_elements.UnaryExpression):
+            return (PaginationBuilder.sql_order_mapping[item.modifier], item.element.name)
+        if isinstance(item, sa.Column):
+            # default is ascending
+            return (1, item.name)
+        raise TypeError(f"Unrecognized type: {type(item)}")
+
+    def retrieve_filtered_column(self, column_name: str) -> Operation | None:
+        whereclause = self.base_query.whereclause
+        if whereclause is None:
+            return None
+        if isinstance(whereclause, sql_elements.BinaryExpression):
+            if column_name in [
+                self.get_column_from_binary_expression(whereclause),
+                self.get_column_from_binary_expression(whereclause),
+            ]:
+                return self.process_operation(whereclause, {}, {}, {})
+        elif isinstance(whereclause, sql_elements.BooleanClauseList):
+            for clause in whereclause.clauses:
+                if isinstance(clause, sql_elements.BinaryExpression):
+                    if column_name in [
+                        self.get_column_from_binary_expression(clause),
+                        self.get_column_from_binary_expression(clause),
+                    ]:
+                        return self.process_operation(clause, {}, {}, {})
+        return None
 
 
 class SQL(QueryBuilder):

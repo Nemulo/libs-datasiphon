@@ -664,5 +664,61 @@ class SQLTest(unittest.TestCase):
             ),
         )
 
+        # test retrieve order_by
+        sample_query = data.table_with_time_stamp.select().order_by(data.table_with_time_stamp.c.created_at.desc())
+        result = ds.sql.PaginationBuilder(sample_query).retrieve_order_by()
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], (0, "created_at"))
+
+        # test order by with different approach
+        sample_query = data.table_with_time_stamp.select().order_by(sa.desc(data.table_with_time_stamp.c.created_at))
+        result = ds.sql.PaginationBuilder(sample_query).retrieve_order_by()
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], (0, "created_at"))
+
+        # test without providing direction
+        sample_query = data.table_with_time_stamp.select().order_by(data.table_with_time_stamp.c.created_at)
+        result = ds.sql.PaginationBuilder(sample_query).retrieve_order_by()
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], (1, "created_at"))
+
+        # test on label
+        sample_query = sa.select(
+            data.table_with_time_stamp.c.name.label("name_label"),
+        ).order_by(sa.desc(data.table_with_time_stamp.c.name.label("name_label")))
+        result = ds.sql.PaginationBuilder(sample_query).retrieve_order_by()
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], (0, "name_label"))
+
+        # test retrieve operation on filtered column
+        # test none
+        sample_query = data.table_with_time_stamp.select().where(data.table_with_time_stamp.c.name == None)
+        result = ds.sql.PaginationBuilder(sample_query).retrieve_filtered_column("created_at")
+        self.assertEqual(result, None)
+
+        # test single
+        sample_query = data.table_with_time_stamp.select().where(data.table_with_time_stamp.c.name == "John")
+        result = ds.sql.PaginationBuilder(sample_query).retrieve_filtered_column("name")
+        self.assertIsInstance(result, ds.sql.Operation)
+        self.assertEqual(result.col, "name")
+        self.assertEqual(result.name, "eq")
+
+        # test on more complex query
+        sample_query = data.table_with_time_stamp.select().where(
+            sa.and_(
+                data.table_with_time_stamp.c.name >= "John",
+                data.table_with_time_stamp.c.created_at < "2021-01-01T12:00:00",
+            )
+        )
+        result = ds.sql.PaginationBuilder(sample_query).retrieve_filtered_column("name")
+        self.assertIsInstance(result, ds.sql.Operation)
+        self.assertEqual(result.col, "name")
+        self.assertEqual(result.name, "ge")
+        result = ds.sql.PaginationBuilder(sample_query).retrieve_filtered_column("created_at")
+        self.assertIsInstance(result, ds.sql.Operation)
+        self.assertEqual(result.col, "created_at")
+        self.assertEqual(result.name, "lt")
+
+
 if __name__ == "__main__":
     unittest.main()
