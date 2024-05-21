@@ -517,6 +517,32 @@ class FilterBuilder:
                         FilterBuilder.check_nested(value, query_columns, filter_model, column_name)
 
 
+@dataclass(init=False)
+class Substitution:
+    operation: str | None
+    column: str
+    value: t.Any
+    used: bool = False
+
+    def __init__(self, column: str, value: t.Any, operation: str = None):
+        self.column = column
+        self.value = value
+        self.operation = operation
+
+    def __eq__(self, other: "Substitution") -> bool:
+        if isinstance(other, Operation):
+            return self.column == other.col
+        if not isinstance(other, Substitution):
+            return False
+        return self.column == other.column
+
+    def to_op(self, original_op: str) -> Operation:
+        self.used = True
+        if self.operation is None:
+            self.operation = original_op
+        return FilterBuilder.op_mapping[self.operation](self.column, self.value)
+
+
 class PaginationBuilder:
     base_query: sa.Select
     sql_operators_mapping: dict[sql_operators.OperatorType, t.Type[Operation] | str] = {
@@ -540,23 +566,15 @@ class PaginationBuilder:
         self.base_query = base_query
 
     @staticmethod
-    def find_and_generate_substitution(col_name: str, subs: dict[str, dict]) -> Operation:
-        def split_substitution(value: dict[str, t.Any]) -> tuple[str, t.Any]:
-            return list(value.keys())[0], list(value.values())[0]
-
-        for column, value in subs.items():
-            if column == col_name:
-                op, value = split_substitution(value)
-                return FilterBuilder.op_mapping[op](col_name, value)
-
-    @staticmethod
     def process_operation(
-        whereclause: sql_elements.BinaryExpression, substition: dict[str, dict], bindparams: dict, removals: dict
+        whereclause: sql_elements.BinaryExpression, substition: list[Substitution], bindparams: dict, removals: dict
     ) -> Operation | None:
         column = PaginationBuilder.get_column_from_binary_expression(whereclause)
-        if column in substition:
-            operation = PaginationBuilder.find_and_generate_substitution(column, substition)
-            return operation
+        for item in substition:
+            if item.used:
+                continue
+            if item.column == column:
+                return item.to_op(PaginationBuilder.sql_operators_mapping[whereclause.operator].name)
         if (
             column in removals
             and removals[column] == PaginationBuilder.sql_operators_mapping[whereclause.operator].name
@@ -665,22 +683,42 @@ class PaginationBuilder:
         return post_processed_data
 
     def reconstruct_filter(
-        self, substitution: dict[str, t.Any] = None, bindparams: dict = None, removals: dict = None
+        self, substitution: list[Substitution] = None, bindparams: dict = None, removals: dict = None
     ) -> dict:
+        """
+        Reconstruct the filter into a nested dictionary from query - parsable by this package
+
+        :param substitution: The substitutions to apply if the substitutions are not used, they are added to the result
+        :param bindparams: The bindparams to apply - from prepared statement NOTE warning: if bindparams are used and not provided
+        `None` value will be used in reconstructed filter
+        :param removals: The removals to apply - remove columns from the filter
+
+        :return: The reconstructed filter
+        """
         data = self.recursive_reconstruct_filter(self.base_query.whereclause, substitution, bindparams, removals)
+        if data is None:
+            data = {}
         if isinstance(data, Operation):
-            return {data.col: {data.name: data.value}}
+            data = {data.col: {data.name: data.value}}
+        if substitution is not None:
+            for item in substitution:
+                if not item.used:
+                    if item.operation is None:
+                        raise ValueError(
+                            f"Column not used in filter and operation for substitution not provided: {item}"
+                        )
+                    data[item.column] = {item.operation: item.value}
         return data
 
     @staticmethod
     def recursive_reconstruct_filter(
-        whereclause: t.Any, substitution: dict[str, t.Any] = None, bindparams: dict = None, removals: dict = None
+        whereclause: t.Any, substitution: list[Substitution] = None, bindparams: dict = None, removals: dict = None
     ) -> dict:
-        processed_substitution = substitution or {}
+        processed_substitution = substitution or []
         processed_bindparams = bindparams or {}
         processed_removals = removals or {}
         if whereclause is None:
-            return {}
+            return None
         if isinstance(whereclause, sql_elements.BinaryExpression):
             operation = PaginationBuilder.process_operation(
                 whereclause, processed_substitution, processed_bindparams, processed_removals
@@ -706,7 +744,7 @@ class PaginationBuilder:
             )
             result[PaginationBuilder.sql_operators_mapping[whereclause.operator]].update(post_processed_operations)
             if result[PaginationBuilder.sql_operators_mapping[whereclause.operator]] == {}:
-                return {}
+                return None
             return result
         elif isinstance(whereclause, sql_elements.Grouping):
             return PaginationBuilder.recursive_reconstruct_filter(

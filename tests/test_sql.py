@@ -637,7 +637,7 @@ class SQLTest(unittest.TestCase):
 
         # test reconstruct with substitution
         result = ds.sql.PaginationBuilder(second_sample_query).reconstruct_filter(
-            substitution={"name": {"ne": "Peter"}}, bindparams={"created_at": "2021-01-01T12:00:00"}
+            substitution=[ds.sql.Substitution("name", "Peter", "ne")], bindparams={"created_at": "2021-01-01T12:00:00"}
         )
         self.assertEqual(
             str(ds.sql.SQL.build(data.table_with_time_stamp.select(), result)),
@@ -647,6 +647,20 @@ class SQLTest(unittest.TestCase):
                         data.table_with_time_stamp.c.name != "Peter",
                         data.table_with_time_stamp.c.created_at == "2021-01-01T12:00:00",
                     )
+                )
+            ),
+        )
+
+        # test substition on non filtered query - should add filter
+        sample_query_add = data.table_with_time_stamp.select()
+        result = ds.sql.PaginationBuilder(sample_query_add).reconstruct_filter(
+            substitution=[ds.sql.Substitution("name", "Peter", "eq")], bindparams={"created_at": "2021-01-01T12:00:00"}
+        )
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.table_with_time_stamp.select(), result)),
+            str(
+                data.table_with_time_stamp.select().where(
+                    data.table_with_time_stamp.c.name == "Peter",
                 )
             ),
         )
