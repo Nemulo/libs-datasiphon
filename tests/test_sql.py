@@ -651,6 +651,18 @@ class SQLTest(unittest.TestCase):
             ),
         )
 
+        # test reconstruct with removal
+        result = ds.sql.PaginationBuilder(second_sample_query).reconstruct_filter(
+            removals={"name": "eq"}, bindparams={"created_at": "2021-01-01T12:00:00"}
+        )
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.table_with_time_stamp.select(), result)),
+            str(
+                data.table_with_time_stamp.select().where(
+                    data.table_with_time_stamp.c.created_at == "2021-01-01T12:00:00",
+                )
+            ),
+        )
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,10 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+### [0.2.6] - 2024-05-21
+
+- added option to `PaginationBuilder` to provide `removals` as for removing fields from filter
+
 ### [0.2.5] - 2024-05-21
 
 - removed operations as methods from `QueryBuilder` class

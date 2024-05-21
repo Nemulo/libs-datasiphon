@@ -519,7 +519,7 @@ class FilterBuilder:
 
 class PaginationBuilder:
     base_query: sa.Select
-    sql_operators_mapping = {
+    sql_operators_mapping: dict[sql_operators.OperatorType, t.Type[Operation] | str] = {
         sql_operators.eq: Eq,
         sql_operators.ne: Ne,
         sql_operators.gt: Gt,
@@ -547,12 +547,18 @@ class PaginationBuilder:
 
     @staticmethod
     def process_operation(
-        whereclause: sql_elements.BinaryExpression, substition: dict[str, dict], bindparams: dict
-    ) -> Operation:
+        whereclause: sql_elements.BinaryExpression, substition: dict[str, dict], bindparams: dict, removals: dict
+    ) -> Operation | None:
         column = PaginationBuilder.get_column_from_binary_expression(whereclause)
         if column in substition:
             operation = PaginationBuilder.find_and_generate_substitution(column, substition)
             return operation
+        if (
+            column in removals
+            and removals[column] == PaginationBuilder.sql_operators_mapping[whereclause.operator].name
+        ):
+            return None
+
         expr_value = PaginationBuilder.get_value_from_binary_expression(whereclause)
         if not isinstance(expr_value, sql_elements.BindParameter):
             raise TypeError(f"Invalid type: {type(expr_value)} for value")
@@ -652,30 +658,37 @@ class PaginationBuilder:
                 )
         return post_processed_data
 
-    def reconstruct_filter(self, substitution: dict[str, t.Any] = None, bindparams: dict = None) -> dict:
-        data = self.recursive_reconstruct_filter(self.base_query.whereclause, substitution, bindparams)
+    def reconstruct_filter(
+        self, substitution: dict[str, t.Any] = None, bindparams: dict = None, removals: dict = None
+    ) -> dict:
+        data = self.recursive_reconstruct_filter(self.base_query.whereclause, substitution, bindparams, removals)
         if isinstance(data, Operation):
             return {data.col: {data.name: data.value}}
         return data
 
     @staticmethod
     def recursive_reconstruct_filter(
-        whereclause: t.Any, substitution: dict[str, t.Any] = None, bindparams: dict = None
+        whereclause: t.Any, substitution: dict[str, t.Any] = None, bindparams: dict = None, removals: dict = None
     ) -> dict:
         processed_substitution = substitution or {}
         processed_bindparams = bindparams or {}
+        processed_removals = removals or {}
         if whereclause is None:
             return {}
         if isinstance(whereclause, sql_elements.BinaryExpression):
-            operation = PaginationBuilder.process_operation(whereclause, processed_substitution, processed_bindparams)
+            operation = PaginationBuilder.process_operation(
+                whereclause, processed_substitution, processed_bindparams, processed_removals
+            )
             return operation
         elif isinstance(whereclause, sql_elements.BooleanClauseList):
             operations: list[Operation | dict] = []
             result = {PaginationBuilder.sql_operators_mapping[whereclause.operator]: {}}
             for clause in whereclause.clauses:
                 operation = PaginationBuilder.recursive_reconstruct_filter(
-                    clause, processed_substitution, processed_bindparams
+                    clause, processed_substitution, processed_bindparams, processed_removals
                 )
+                if operation is None:
+                    continue
                 if operation not in operations:
                     operations.append(operation)
                 else:
@@ -686,10 +699,12 @@ class PaginationBuilder:
                 operations, PaginationBuilder.sql_operators_mapping[whereclause.operator]
             )
             result[PaginationBuilder.sql_operators_mapping[whereclause.operator]].update(post_processed_operations)
+            if result[PaginationBuilder.sql_operators_mapping[whereclause.operator]] == {}:
+                return {}
             return result
         elif isinstance(whereclause, sql_elements.Grouping):
             return PaginationBuilder.recursive_reconstruct_filter(
-                whereclause.element, processed_substitution, processed_bindparams
+                whereclause.element, processed_substitution, processed_bindparams, processed_removals
             )
         else:
             raise TypeError(f"Unrecognized type: {type(whereclause)}")
