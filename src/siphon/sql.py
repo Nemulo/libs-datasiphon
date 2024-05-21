@@ -543,6 +543,22 @@ class Substitution:
         return FilterBuilder.op_mapping[self.operation](self.column, self.value)
 
 
+@dataclass(init=False)
+class Removal:
+    operation: str | None
+    column: str
+
+    def __init__(self, column: str, operation: str = None):
+        self.column = column
+        self.operation = operation
+
+    def has_operation(self) -> bool:
+        return self.operation is not None
+
+    def is_correct_op(self, op: str) -> bool:
+        return self.operation == op
+
+
 class PaginationBuilder:
     base_query: sa.Select
     sql_operators_mapping: dict[sql_operators.OperatorType, t.Type[Operation] | str] = {
@@ -567,7 +583,10 @@ class PaginationBuilder:
 
     @staticmethod
     def process_operation(
-        whereclause: sql_elements.BinaryExpression, substition: list[Substitution], bindparams: dict, removals: dict
+        whereclause: sql_elements.BinaryExpression,
+        substition: list[Substitution],
+        bindparams: dict,
+        removals: list[Removal],
     ) -> Operation | None:
         column = PaginationBuilder.get_column_from_binary_expression(whereclause)
         for item in substition:
@@ -575,11 +594,15 @@ class PaginationBuilder:
                 continue
             if item.column == column:
                 return item.to_op(PaginationBuilder.sql_operators_mapping[whereclause.operator].name)
-        if (
-            column in removals
-            and removals[column] == PaginationBuilder.sql_operators_mapping[whereclause.operator].name
-        ):
-            return None
+        for item in removals:
+            if item.column == column:
+                # if removal has set operation, remove this operation only if it matches
+                # otherwise, remove all operations for this column
+                if item.has_operation() and not item.is_correct_op(
+                    PaginationBuilder.sql_operators_mapping[whereclause.operator].name
+                ):
+                    continue
+                return None
 
         expr_value = PaginationBuilder.get_value_from_binary_expression(whereclause)
         if not isinstance(expr_value, sql_elements.BindParameter):
@@ -683,7 +706,7 @@ class PaginationBuilder:
         return post_processed_data
 
     def reconstruct_filter(
-        self, substitution: list[Substitution] = None, bindparams: dict = None, removals: dict = None
+        self, substitution: list[Substitution] = None, bindparams: dict = None, removals: list[Removal] = None
     ) -> dict:
         """
         Reconstruct the filter into a nested dictionary from query - parsable by this package
@@ -712,11 +735,14 @@ class PaginationBuilder:
 
     @staticmethod
     def recursive_reconstruct_filter(
-        whereclause: t.Any, substitution: list[Substitution] = None, bindparams: dict = None, removals: dict = None
+        whereclause: t.Any,
+        substitution: list[Substitution] = None,
+        bindparams: dict = None,
+        removals: list[Removal] = None,
     ) -> dict:
         processed_substitution = substitution or []
         processed_bindparams = bindparams or {}
-        processed_removals = removals or {}
+        processed_removals = removals or []
         if whereclause is None:
             return None
         if isinstance(whereclause, sql_elements.BinaryExpression):
@@ -784,7 +810,7 @@ class PaginationBuilder:
                 self.get_column_from_binary_expression(whereclause),
                 self.get_column_from_binary_expression(whereclause),
             ]:
-                return self.process_operation(whereclause, {}, {}, {})
+                return self.process_operation(whereclause, [], {}, [])
         elif isinstance(whereclause, sql_elements.BooleanClauseList):
             for clause in whereclause.clauses:
                 if isinstance(clause, sql_elements.BinaryExpression):
@@ -792,7 +818,7 @@ class PaginationBuilder:
                         self.get_column_from_binary_expression(clause),
                         self.get_column_from_binary_expression(clause),
                     ]:
-                        return self.process_operation(clause, {}, {}, {})
+                        return self.process_operation(clause, [], {}, [])
         return None
 
 

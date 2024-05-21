@@ -667,7 +667,7 @@ class SQLTest(unittest.TestCase):
 
         # test reconstruct with removal
         result = ds.sql.PaginationBuilder(second_sample_query).reconstruct_filter(
-            removals={"name": "eq"}, bindparams={"created_at": "2021-01-01T12:00:00"}
+            removals=[ds.sql.Removal("name")], bindparams={"created_at": "2021-01-01T12:00:00"}
         )
         self.assertEqual(
             str(ds.sql.SQL.build(data.table_with_time_stamp.select(), result)),
@@ -676,6 +676,18 @@ class SQLTest(unittest.TestCase):
                     data.table_with_time_stamp.c.created_at == "2021-01-01T12:00:00",
                 )
             ),
+        )
+
+        not_affected_query = data.table_with_time_stamp.select().where(
+            data.table_with_time_stamp.c.name == "John",
+        )
+        # test reconstruct with removal but doesnt affect anything
+        result = ds.sql.PaginationBuilder(not_affected_query).reconstruct_filter(
+            removals=[ds.sql.Removal("name", "gt")],
+        )
+        self.assertEqual(
+            str(ds.sql.SQL.build(data.table_with_time_stamp.select(), result)),
+            str(not_affected_query),
         )
 
         # test retrieve order_by
