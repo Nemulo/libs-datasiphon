@@ -466,7 +466,8 @@ class SQLTest(unittest.TestCase):
         second_test_query = data.table_with_time_stamp.select()
 
         # nested clauses for pointer will not be paginable
-        self.assertFalse(ds.sql.PaginationBuilder(test_query).is_query_paginable(["created_at"]))
+        # NOTE CHANGED - now paginable - only condition is that the ordered column is never used in any nested clause
+        self.assertTrue(ds.sql.PaginationBuilder(test_query).is_query_paginable(["created_at"]))
 
         # simple query will be paginable
         self.assertTrue(ds.sql.PaginationBuilder(second_test_query).is_query_paginable(["created_at"]))

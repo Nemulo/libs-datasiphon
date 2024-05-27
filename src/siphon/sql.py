@@ -631,6 +631,25 @@ class PaginationBuilder:
         else:
             return None
 
+    @staticmethod
+    def column_in_whereclause(whereclause: t.Any, column: str) -> bool:
+        if isinstance(whereclause, sql_elements.BinaryExpression):
+            used_column = PaginationBuilder.get_column_from_binary_expression(whereclause)
+            if used_column == column and whereclause.operator in [
+                sql_operators.eq,
+                sql_operators.ne,
+                sql_operators.in_op,
+                sql_operators.not_in_op,
+            ]:
+                return True
+        if isinstance(whereclause, sql_elements.BooleanClauseList):
+            for clause in whereclause.clauses:
+                if PaginationBuilder.column_in_whereclause(clause, column):
+                    return True
+            return False
+        if isinstance(whereclause, sql_elements.Grouping):
+            return PaginationBuilder.column_in_whereclause(whereclause.element, column)
+
     def is_query_paginable(self, pagination_columns: list[str]) -> bool:
         """
         Check if a query is paginable
@@ -642,23 +661,9 @@ class PaginationBuilder:
 
         if self.base_query.whereclause is None:
             return True
-        if isinstance(self.base_query.whereclause, sql_elements.BinaryExpression):
-            column = self.get_column_from_binary_expression(self.base_query.whereclause)
-            if column in pagination_columns and self.base_query.whereclause.operator in [
-                sql_operators.eq,
-                sql_operators.ne,
-            ]:
+        for column in pagination_columns:
+            if PaginationBuilder.column_in_whereclause(self.base_query.whereclause, column):
                 return False
-        elif isinstance(self.base_query.whereclause, sql_elements.BooleanClauseList):
-            for clause in self.base_query.whereclause.clauses:
-                if isinstance(clause, sql_elements.BinaryExpression):
-                    column = self.get_column_from_binary_expression(clause)
-                    if column in pagination_columns and clause.operator in [sql_operators.eq, sql_operators.ne]:
-                        return False
-                else:
-                    return False
-        else:
-            raise TypeError(f"Unrecognized type: {type(self.base_query.whereclause)}")
         return True
 
     @staticmethod

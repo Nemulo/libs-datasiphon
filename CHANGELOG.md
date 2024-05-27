@@ -4,6 +4,12 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+
+### [0.2.14] - 2024-05-27
+
+- changed checking whether query is paginable - now only requirement is that the ordered column is not present in any nesed expression with `eq` `neq` `in_` or `nin` operator
+
+
 ### [0.2.13] - 2024-05-27
 
 - now order by columns from `PaginationBuilder` class is able to recognize referenced column and return its referenced name instead of base column name
