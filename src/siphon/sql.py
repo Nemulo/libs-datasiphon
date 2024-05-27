@@ -612,18 +612,18 @@ class PaginationBuilder:
 
     @staticmethod
     def get_column_from_binary_expression(binary_expression: sql_elements.BinaryExpression) -> str:
-        if isinstance(binary_expression.left, sa.Column):
+        if isinstance(binary_expression.left, (sa.Label, sa.Column)):
             return binary_expression.left.name
-        elif isinstance(binary_expression.right, sa.Column):
+        elif isinstance(binary_expression.right, (sa.Label, sa.Column)):
             return binary_expression.right.name
         else:
             return None
 
     @staticmethod
     def get_value_from_binary_expression(binary_expression: sql_elements.BinaryExpression) -> t.Any:
-        if isinstance(binary_expression.left, sa.Column):
+        if isinstance(binary_expression.left, (sa.Column, sa.Label)):
             return binary_expression.right
-        elif isinstance(binary_expression.right, sa.Column):
+        elif isinstance(binary_expression.right, (sa.Label, sa.Column)):
             return binary_expression.left
         else:
             return None
