@@ -4,6 +4,10 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+### [0.2.13] - 2024-05-27
+
+- now order by columns from `PaginationBuilder` class is able to recognize referenced column and return its referenced name instead of base column name
+
 ### [0.2.11] - 2024-05-27
 
 - added support for `Decimal` type of column in `sql.SQL` backend

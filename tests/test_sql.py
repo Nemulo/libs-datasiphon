@@ -717,6 +717,15 @@ class SQLTest(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], (0, "name_label"))
 
+        # NEW: now also should be able to recognize it without label
+        sample_query = sa.select(
+            data.table_with_time_stamp.c.name.label("name_label"),
+        ).order_by(sa.desc(data.table_with_time_stamp.c.name))
+
+        result = ds.sql.PaginationBuilder(sample_query).retrieve_order_by()
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], (0, "name_label"))
+
         # test retrieve operation on filtered column
         # test none
         sample_query = data.table_with_time_stamp.select().where(data.table_with_time_stamp.c.name == None)

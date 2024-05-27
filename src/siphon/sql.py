@@ -774,19 +774,28 @@ class PaginationBuilder:
         else:
             raise TypeError(f"Unrecognized type: {type(whereclause)}")
 
+    def get_referenced_column(self, original_column: str) -> str | None:
+        for item in self.base_query.exported_columns:
+            if item.name == original_column:
+                return item.name
+            if isinstance(item, sa.Label) and item.element.name == original_column:
+                return item.name
+        return None
+
     def retrieve_order_by(self, count: int = 1) -> tuple[int, str] | None:
         clauses = self.base_query._order_by_clauses
         if len(clauses) == 0:
             return None
         processed_clauses = []
         for clause in clauses:
-            processed_clauses.append(self.recusively_process_order_by(clause))
+            direction, referenced_column_name = PaginationBuilder.recusively_process_order_by(clause)
+            processed_clauses.append((direction, self.get_referenced_column(referenced_column_name)))
             if len(processed_clauses) == count:
                 break
         return processed_clauses
 
     @staticmethod
-    def recusively_process_order_by(item: t.Any) -> tuple[int, str] | None:
+    def recusively_process_order_by(item: t.Any) -> tuple[int, sa.Column] | None:
         if isinstance(item, sql_elements._label_reference):
             return PaginationBuilder.recusively_process_order_by(item.element)
         if isinstance(item, sql_elements.UnaryExpression):
