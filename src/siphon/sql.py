@@ -19,6 +19,7 @@ from sqlalchemy.sql.base import ReadOnlyColumnCollection
 import datetime as dt
 from dataclasses import dataclass
 from collections import OrderedDict
+import decimal
 
 
 class SqlOrderFilter(BaseModel):
@@ -169,10 +170,12 @@ class FilterTypeParser:
         """
         if type_ in [int, float, str, bool]:
             return type_
-        elif type_ == dt.datetime:
+        if type_ in [dt.date, dt.datetime]:
             return dt.datetime.fromisoformat
-        else:
-            raise ValueError(f"Unparsable type: {type_}")
+        if type_ == decimal.Decimal:
+            return decimal.Decimal
+
+        raise ValueError(f"Unparsable type: {type_}")
 
 
 @dataclass(init=False)

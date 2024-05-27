@@ -4,6 +4,9 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+### [0.2.11] - 2024-05-27
+
+- added support for `Decimal` type of column in `sql.SQL` backend
 
 ### [0.2.10] - 2024-05-27
 
