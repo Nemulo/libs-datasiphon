@@ -783,7 +783,11 @@ class PaginationBuilder:
         for item in self.base_query.exported_columns:
             if item.name == original_column:
                 return item.name
-            if isinstance(item, sa.Label) and item.element.name == original_column:
+            if (
+                isinstance(item, sa.Label)
+                and isinstance(item.element, sa.Column)
+                and item.element.name == original_column
+            ):
                 return item.name
         return None
 
