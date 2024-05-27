@@ -655,14 +655,6 @@ class PaginationBuilder:
                     column = self.get_column_from_binary_expression(clause)
                     if column in pagination_columns and clause.operator in [sql_operators.eq, sql_operators.ne]:
                         return False
-                    if self.base_query.whereclause.operator == sql_operators.and_:
-                        if column not in pagination_columns and clause.operator not in [
-                            sql_operators.eq,
-                            sql_operators.ne,
-                            sql_operators.in_op,
-                            sql_operators.not_in_op,
-                        ]:
-                            return False
                 else:
                     return False
         else:

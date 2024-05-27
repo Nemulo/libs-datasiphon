@@ -1,7 +1,7 @@
 from . import sql, nosql, base
 import typing as t
 
-VERSION = (0, 2, 11)
+VERSION = (0, 2, 12)
 __version__ = ".".join(map(str, VERSION))
 
 

@@ -531,7 +531,8 @@ class SQLTest(unittest.TestCase):
                 )
             ).is_query_paginable(["name"])
         )
-        self.assertFalse(
+
+        self.assertTrue(
             ds.sql.PaginationBuilder(
                 second_test_query.where(
                     sa.and_(
