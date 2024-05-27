@@ -4,6 +4,11 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+
+### [0.2.10] - 2024-05-27
+
+- adjustment to extracting data from binary expressions: now also counts `Label` as column element
+
 ### [0.2.9] - 2024-05-21
 
 - adjustments to removals - now accepted as list of `Removal` class
