@@ -163,3 +163,13 @@ new_query = sql.SQL.build(query, filter_)
     ```
 
 - generating query: recursively collecting items from filter, and applying filtering directly to exported columns of given query
+
+##### Reconstructing dict filter from query
+- Since data that are selected using filtered queries builded by this package allow very specific filtration and juctions. Usually it is hard to reconstruct the filter from the query for possible further use in case there are more data than expected and we want to paginate them. 
+- For this purpose, a separate class `PaginationBuilder`, that serve as a helper for some trivial methods for getting specific parts/structures of the query is provided.
+- Following useful methods are implemented:
+1. `is_query_paginable` - query is paginable if the column by which is query originally ordered is not present in `whereclause` with direct comparison operator (eq, ne)
+2. `reconstruct_filter` - allows you to reconstruct (functionally) equivalent filter from the query (core SQL) back into dictionary filter in [qstion](https://pypi.org/project/qstion/) format
+3. `get_referenced_column` - allows you to retrieve `Column` or `ReadOnlyColumn` from more complex queries either by its direct name or reference (label) in the query
+4. `retrieve_order_by` - allows you to retrieve the column name(s) and direction by which the query is ordered in form of pairs `(direction, column_name)`
+5. `retrieve_filtered_column` - allows you to retrieve column which is filtered in the query (if present) in form of `Operation` object 
