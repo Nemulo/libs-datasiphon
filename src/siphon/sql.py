@@ -494,7 +494,20 @@ class FilterBuilder:
                                 f"Invalid operator: {op} - not allowed for column: {current_key}, allowed: {getattr(filter_model, current_key)}"
                             )
                     if op in ["in_", "nin"]:
+                        # NOTE: also accepts dict-like-array (dict with only integer keys - workarounds for JS sparse arrays)
+                        if isinstance(value, dict):
+                            try:
+                                replacement = []
+                                for str_key, item in value.items():
+                                    replacement.insert(int(str_key), item)
+                                data[key] = replacement
+                                value = replacement
+                            except (TypeError, ValueError):
+                                raise InvalidValueError(
+                                    f"Invalid value: {value} - using array-like dict not possible for {op}"
+                                )
                         if not isinstance(value, (list, tuple)):
+
                             raise InvalidValueError(f"Invalid value: {value} - expected list or tuple for {op}")
                         # instead of checking if each value has correct type, we will use constructor to do it and catch any type errors with InvalidValueError
                         try:
