@@ -1,10 +1,6 @@
-from . import sql, nosql, base
-import typing as t
+from .sql_filter import SqlQueryBuilder
 
-VERSION = (0, 2, 16)
+VERSION = (0, 3, 0)
 __version__ = ".".join(map(str, VERSION))
 
-
-t_Database = t.TypeVar("t_Database", sql.SQL, nosql.Mongo)
-
-__all__ = ["build", "sql", "nosql"]
+__all__ = ["SqlQueryBuilder"]
