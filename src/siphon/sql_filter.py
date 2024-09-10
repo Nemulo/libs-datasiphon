@@ -1,5 +1,5 @@
 from .core import _filter_core as core
-from .core._exc import InvalidValueTypeError, ColumnError
+from .core._exc import InvalidValueTypeError, ColumnError, FiltrationNotAllowed
 from sqlalchemy import Table, Select, and_ as sa_and, or_ as sa_or, asc as sa_asc, desc as sa_desc
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.base import ColumnCollection
@@ -80,6 +80,15 @@ def get_sql_operator(operator: str) -> t.Type[core.FilterOperation]:
     }[operator]
 
 
+def get_restriction(
+    column_name: str, restrictions: list[core.ColumnFilterRestriction]
+) -> core.ColumnFilterRestriction | None:
+    for restriction in restrictions:
+        if restriction.name == column_name:
+            return restriction
+    return None
+
+
 class FilterExpression:
     junction: Junction | None
     nested_expressions: list["FilterExpression"] | None
@@ -94,10 +103,15 @@ class FilterExpression:
 
     @classmethod
     def joined_expressions(cls, junction: Junction, *expressions: "FilterExpression") -> "FilterExpression":
-        instance = cls(None, None)
-        instance.junction = junction
-        instance.nested_expressions = list(expressions)
-        return instance
+        if len(expressions) == 0:
+            return None
+        elif len(expressions) == 1:
+            return expressions[0]
+        else:
+            instance = cls(None, None)
+            instance.junction = junction
+            instance.nested_expressions = list(expressions)
+            return instance
 
     @property
     def is_junction(self) -> bool:
@@ -166,22 +180,28 @@ class SqlQueryBuilder(core.QueryBuilder):
     def __init__(self, table_base: dict[str, Table]) -> None:
         self.table_base = table_base
 
-    def build(self, query: Select, filtering: QsRoot | dict, *restrictions: core.ColumnFilterRestriction) -> Select:
+    def create_filter(
+        self, filtering: QsRoot | dict, query_columns: ColumnCollection, *restrictions: core.ColumnFilterRestriction
+    ) -> tuple[FilterExpression, SqlKeywordFilter]:
         if not isinstance(filtering, (QsRoot, dict)):
             raise ValueError(f"Unsupported input filtering type: {type(filtering)}")
         if isinstance(filtering, dict):
             filtering = self.load_filtering(filtering)
         self.verify_filtering(filtering)
-        # TODO implement restrictions
-        columns = self.extract_columns(query)
-        keyword_filter = SqlKeywordFilter()
         filter_expressions = []
+        keyword_filter = SqlKeywordFilter()
         for node in filtering.children:
-            filter_expression = self.create_filter_expression(node, columns, keyword_filter)
+            filter_expression = self.create_filter_expression(
+                node, query_columns, keyword_filter, restrictions=restrictions
+            )
             if filter_expression is not None:
                 filter_expressions.append(filter_expression)
-        for expression in filter_expressions:
-            query = expression.apply(query)
+        return FilterExpression.joined_expressions(Junction.AND, *filter_expressions), keyword_filter
+
+    def build(self, query: Select, filtering: QsRoot | dict, *restrictions: core.ColumnFilterRestriction) -> Select:
+        columns = self.extract_columns(query)
+        filter_expression, keyword_filter = self.create_filter(filtering, columns, *restrictions)
+        query = filter_expression.apply(query) if filter_expression else query
         query = keyword_filter.apply(query)
         return query
 
@@ -191,6 +211,7 @@ class SqlQueryBuilder(core.QueryBuilder):
         columns: ColumnCollection,
         keyword_filter: SqlKeywordFilter,
         parent_column: str | None = None,
+        restrictions: list[core.ColumnFilterRestriction] = None,
     ) -> FilterExpression:
         """
         Creates a filter expression object based on a QsNode which is assumed to be already validated.
@@ -202,7 +223,12 @@ class SqlQueryBuilder(core.QueryBuilder):
         if node.key in self.JUNCTIONS:
             return FilterExpression.joined_expressions(
                 Junction.from_str(node.key),
-                *[self.create_filter_expression(child, columns, keyword_filter, parent_column) for child in node.value],
+                *[
+                    self.create_filter_expression(
+                        child, columns, keyword_filter, parent_column, restrictions=restrictions
+                    )
+                    for child in node.value
+                ],
             )
         else:
             # if node is a leaf node, key is operator and thus expression will inherit from parent column
@@ -210,6 +236,11 @@ class SqlQueryBuilder(core.QueryBuilder):
             if node.is_leaf:
                 column_ref = self.resolve_column(parent_column, columns)
                 operator = get_sql_operator(node.key)(node.value)
+                if restrictions and (restriction := get_restriction(column_ref.key, restrictions)):
+                    if not restriction.is_filter_allowed(operator):
+                        raise FiltrationNotAllowed(
+                            f"Filtering operation {operator.filter_name} is not allowed, either with the current value or is forbidden as whole."
+                        )
                 return FilterExpression(column_ref, operator)
             elif node.is_simple_array_branch:
                 # in case of `in_` or `nin` operator, node is a simple array branch
@@ -220,7 +251,12 @@ class SqlQueryBuilder(core.QueryBuilder):
                 # node is a nested node - column argument
                 return FilterExpression.joined_expressions(
                     Junction.AND,
-                    *[self.create_filter_expression(child, columns, keyword_filter, node.key) for child in node.value],
+                    *[
+                        self.create_filter_expression(
+                            child, columns, keyword_filter, node.key, restrictions=restrictions
+                        )
+                        for child in node.value
+                    ],
                 )
 
     def process_keyword_node(self, keyword_node: QsNode, query_columns: ColumnCollection) -> tuple[str, t.Any]:

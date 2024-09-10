@@ -44,3 +44,11 @@ class BadFormatError(SihponError):
     """
 
     pass
+
+
+class FiltrationNotAllowed(SihponError):
+    """
+    Exception raised when an invalid filtration is provided.
+    """
+
+    pass

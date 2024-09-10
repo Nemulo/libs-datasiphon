@@ -26,7 +26,23 @@ table_with_time_stamp = sa.Table(
     sa.Column("created_at", sa.DateTime, nullable=False),
 )
 
-tt_select = sa.select(
+partial_select = sa.select(
+    test_table.c.name,
+    test_table.c.age,
+).select_from(test_table)
+
+partial_combined_select = sa.select(
+    test_table.c.name,
+    test_table.c.age,
+    secondary_test.c.value,
+).select_from(
+    test_table.join(
+        secondary_test,
+        test_table.c.id == secondary_test.c.primary_id,
+    )
+)
+
+basic_enum_select = sa.select(
     test_table.c.id,
     test_table.c.name,
     test_table.c.age,
@@ -34,13 +50,13 @@ tt_select = sa.select(
     test_table.c.created_at,
 ).select_from(test_table)
 
-st_select = sa.select(
+secondary_table_select = sa.select(
     secondary_test.c.id,
     secondary_test.c.primary_id,
     secondary_test.c.value,
 ).select_from(secondary_test)
 
-st_tt_select = sa.select(
+combined_enum_select = sa.select(
     test_table.c.id,
     test_table.c.name,
     test_table.c.age,
@@ -51,6 +67,26 @@ st_tt_select = sa.select(
     secondary_test.c.value,
 ).select_from(
     test_table.outerjoin(
+        secondary_test,
+        test_table.c.id == secondary_test.c.primary_id,
+    )
+)
+
+labeled_select = sa.select(
+    test_table.c.id.label("ID"),
+    test_table.c.name.label("tt_name"),
+    test_table.c.age.label("tt_age"),
+).select_from(test_table)
+
+labeled_combined_select = sa.select(
+    test_table.c.id.label("ID"),
+    test_table.c.name.label("tt_name"),
+    test_table.c.age.label("tt_age"),
+    secondary_test.c.id.label("ST_ID"),
+    secondary_test.c.primary_id.label("ST_PRIMARY_ID"),
+    secondary_test.c.value.label("ST_VALUE"),
+).select_from(
+    test_table.join(
         secondary_test,
         test_table.c.id == secondary_test.c.primary_id,
     )

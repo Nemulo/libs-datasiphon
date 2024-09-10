@@ -228,9 +228,21 @@ class ColumnFilterRestriction:
             operations_list.append(operation)
         return cls(column_name, *operations_list)
 
+    def is_filter_allowed(self, operation: FilterOperation) -> bool:
+        """
+        Checks if the filter operation is allowed for the column.
+        """
+        for allowed_operation in self.allowed_operations:
+            if isinstance(operation, type(allowed_operation)):
+                # optionally if operation has assigned value, check if it's the same
+                if allowed_operation.assigned_value is not AnyValue:
+                    if operation.assigned_value == allowed_operation.assigned_value:
+                        return False
+                    return True
+                return False
+        return True
 
-# TODO: Consider using filter clauses as `FilterExpression` objects instead of list of clauses - better handling of
-# operations, junctions and nested expressions
+
 # NOTE: is this useful in other cases except for SQL queries?
 
 
