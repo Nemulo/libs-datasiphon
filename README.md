@@ -13,7 +13,7 @@ pip install datasiphon
 ## Usage
 
 ```python
-from siphon import sql
+from siphon import SqlQueryBuilder
 import sqlalchemy as sa
 # Create a filter
 filter_ = {
@@ -23,11 +23,12 @@ filter_ = {
 table = sa.Table("users", sa.MetaData(), autoload=True, autoload_with=engine)
 # Build a query
 query = table.select()
-# apply filter using build function
-query = sql.SQL.build(query, filter_)
-# execute query
-result = engine.execute(query)
-...
+
+# set up builder with table base
+builder = SqlQueryBuilder({"users": table})
+
+# build a query with filter
+new_query = builder.build(query, filter_)
 ```
 
 ### Supported Database types
@@ -36,8 +37,8 @@ result = engine.execute(query)
 #### Building query
 1. Prerequisite
     - base `SELECT` query (`Select` object) from actual `Table` objects (not `text` objects)
-    - filter (dictionary), optional, optimally parsed using `qstion` package -> similiar to npm's `qs` package
-    - restriction model (child of `siphon.sql.RestrictionModel` class), optional, to restrict the filter to certain fields
+    - filter (dictionary/`QsRoot` from `qstion` package), optional, optimally parsed using `qstion` package -> similiar to npm's `qs` package
+    - restrictions (optional) - objects that restrict specific columns and operators that can be used in filter
 2. Usage
 ```python
 from siphon import sql
@@ -48,9 +49,9 @@ filter_ = {
 }
 
 # build a query with filter
-new_query = sql.SQL.build(query, filter_)
+new_query = sql.SqlQueryBuilder({"users": table}).build(query, filter_)
 ```
-- `filter_` is validated before building the query, against columns used in select statement and restriction model (if provided)
+- `filter_` is validated before building the query, expecting specific format representing valid structure of applicable filter for given backend (currently only SQL backend is supported)
  - allowed format represents nestings containing one of :
  1. junctions (AND, OR) -> for combining multiple conditions with desired logical operators (allowed exclusively per nest level)
     ```python
@@ -114,21 +115,39 @@ new_query = sql.SQL.build(query, filter_)
         }
     }
     ```
- - if using restriction model, filter also can contain only fields in the restriction model, and operators used have to be in restriction model's field (RestrictionModel class has pretty strict validation for initialization and annotation and won't allow any faulty initialization or usage)
+ - if using restriction model - builder will raise error when trying to apply operator that is restricted for given field (column)
     ```python
+    from siphon import ColumnFilterRestriction, AnyValue
+    from siphon.sql_filter import SQLEq, SQLNe
     # Example of correct restriction model usage
-    class UserRestrictionModel(sql.RestrictionModel):
-        # must always be annotated as `list[str]` otherwise will raise an error
-        name = list[str] = []
-        # must be always subset of all existing operators for that query builder
-        age = list[str] = ['eq']
+    # This restriction will forbid applying eq operator on field `name` - AnyValue signifies that any value is forbidden
+    restriction = ColumnFilterRestriction(
+        "name", SQLEq.generate_restriction(AnyValue)
+    )
+    # Example of specific value restriction
+    # This restriction will forbid applying eq operator on field `name` with value "John"
+    restriction = ColumnFilterRestriction(
+        "name", SQLEq.generate_restriction("John")
+    )
+    # Alternate approach to generate restriction
+    restriction = ColumnFilterRestriction.from_dict(
+        "name", {"eq": AnyValue}
+    )
+    restriction = ColumnFilterRestriction.from_dict(
+        "name", {"eq": "John"}
+    )
+
+    # Applying restriction to builder
+    builder = SqlQueryBuilder({"users": table})
+    # Restrictions are optional positional argument
+    builder.build(query, filter_, restriction)
     
-    # Example incorrect - using operator not in restriction model
-    class UserRestrictionModel(sql.RestrictionModel):
-        # does not have correct annotation
-        name = list[int] = []
-        # does not have correct operators
-        age = list[str] = ['eql']
+    # different restriction for different column
+    age_restriction = ColumnFilterRestriction(
+        "age", SQLNe.generate_restriction(20)
+    )
+    builder.build(query, filter_, restriction, age_restriction)
+        
     ```
  - using multiple condition without specifying junctions will result in an `AND` junction between them
     ```python
@@ -164,12 +183,7 @@ new_query = sql.SQL.build(query, filter_)
 
 - generating query: recursively collecting items from filter, and applying filtering directly to exported columns of given query
 
-##### Reconstructing dict filter from query
-- Since data that are selected using filtered queries builded by this package allow very specific filtration and juctions. Usually it is hard to reconstruct the filter from the query for possible further use in case there are more data than expected and we want to paginate them. 
-- For this purpose, a separate class `PaginationBuilder`, that serve as a helper for some trivial methods for getting specific parts/structures of the query is provided.
-- Following useful methods are implemented:
-1. `is_query_paginable` - query is paginable if the column by which is query originally ordered is not present in `whereclause` with direct comparison operator (eq, ne)
-2. `reconstruct_filter` - allows you to reconstruct (functionally) equivalent filter from the query (core SQL) back into dictionary filter in [qstion](https://pypi.org/project/qstion/) format
-3. `get_referenced_column` - allows you to retrieve `Column` or `ReadOnlyColumn` from more complex queries either by its direct name or reference (label) in the query
-4. `retrieve_order_by` - allows you to retrieve the column name(s) and direction by which the query is ordered in form of pairs `(direction, column_name)`
-5. `retrieve_filtered_column` - allows you to retrieve column which is filtered in the query (if present) in form of `Operation` object 
+#### Reconstructing filter from `FilterExpression` and `SqlKeywordFilter` objects
+
+- since `FilterExpression` object is a tree-like structure builded originally from filter dictionary, it can be easily reconstructed along with `SqlKeywordFilter` object to represent the same filter as original dictionary
+- this objects can be manipulated directly to adjust filter or to be used in different context

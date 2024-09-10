@@ -5,6 +5,15 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+### [0.3.0] - 2024-09-10
+
+- Refactored project - core structure moved to `core` module, sql backend moved to is now in `sql_filter` module
+- Rewritten tests
+- Modified structures and objects for better manipulation and extension
+- adjusted readability and documentation
+- removed support for non-`sql` backends (for now)
+- now works with `qstion` package for better filter handling
+
 ### [0.2.14] - 2024-05-27
 
 - changed checking whether query is paginable - now only requirement is that the ordered column is not present in any nesed expression with `eq` `neq` `in_` or `nin` operator
