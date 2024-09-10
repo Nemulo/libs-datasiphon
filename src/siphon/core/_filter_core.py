@@ -76,6 +76,9 @@ class FilterOperation:
         """
         raise NotImplementedError("The method 'evaluate' must be implemented in the derived class.")
 
+    def __eq__(self, other: "FilterOperation") -> bool:
+        return isinstance(other, type(self)) and self.assigned_value == other.assigned_value
+
 
 # Core operations:
 # eq - equals
@@ -270,11 +273,6 @@ class QueryBuilder:
         - `restriction` node can contain either a single operation or multiple operations (implicit `and` junction)
         or junction node explicitly stating the junction type
         - in case of combining junction and restriction nodes, the implicit `and` junction is applied between those expressions
-        NOTE: There cannot be both junctions used on same level - only one junction type can be used e.g.
-        - {and: {name: eq: "John", age: gt: 18}, or: {name: eq: "Alice", age: gt: 21}} - would be semantically incorrect
-        since  `and` junction is obsolete in this case and should be used rather this way:
-        - {name: eq: "John", age: gt: 18, or: {name: eq: "Alice", age: gt: 21}}
-        Which is equivalent to before mentioned example.
         Expression formula example:
         - E(1) and E(2) and ... and E(n) - where E(i) is an expression node - can be indefinitely nested
 
@@ -288,9 +286,6 @@ class QueryBuilder:
             List of column names that are used in the filtering structure.
         """
         column_names = []
-        # 1. verify junctions in children
-        if len([child for child in filtering.children if child.key in QueryBuilder.JUNCTIONS]) > 1:
-            raise InvalidFilteringStructureError("Only one junction type can be used on the same level.")
         for child in filtering.children:
             resolved_columns = QueryBuilder.process_node(child)
             if resolved_columns is not None:
@@ -333,9 +328,6 @@ class QueryBuilder:
                     raise InvalidFilteringStructureError(
                         f"Parent column is set - <{parent_column}> - for nested node, key must be a junction."
                     )
-                # verify that children contain at most one junction and the rest are operations
-                if len([child for child in node.value if child.key in QueryBuilder.JUNCTIONS]) > 1:
-                    raise InvalidFilteringStructureError("Only one junction type can be used on the same level.")
                 for child in node.value:
                     QueryBuilder.process_node(child, parent_column)
             else:
@@ -352,9 +344,6 @@ class QueryBuilder:
                         resolved_columns.extend(QueryBuilder.process_node(child))
                 else:
                     # key is a column name - verify children - they must be either operations or junctions
-                    # vefrify that children contain at most one junction and the rest are operations
-                    if len([child for child in node.value if child.key in QueryBuilder.JUNCTIONS]) > 1:
-                        raise InvalidFilteringStructureError("Only one junction type can be used on the same level.")
                     for child in node.value:
                         # returns either `None` or raises an exception
                         QueryBuilder.process_node(child, node.key)

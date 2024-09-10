@@ -53,7 +53,7 @@ new_query = sql.SqlQueryBuilder({"users": table}).build(query, filter_)
 ```
 - `filter_` is validated before building the query, expecting specific format representing valid structure of applicable filter for given backend (currently only SQL backend is supported)
  - allowed format represents nestings containing one of :
- 1. junctions (AND, OR) -> for combining multiple conditions with desired logical operators (allowed exclusively per nest level)
+ 1. junctions (AND, OR) -> for combining multiple conditions with desired logical operators
     ```python
         # Example correct - joining or with different fields
         filter_ = {
@@ -73,7 +73,6 @@ new_query = sql.SqlQueryBuilder({"users": table}).build(query, filter_)
                 }
             }
         }
-        # Example - incorrect - multiple junctions in same nest level
         filter_ = {
             "or":
             {

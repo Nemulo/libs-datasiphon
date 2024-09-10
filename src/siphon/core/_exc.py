@@ -52,3 +52,11 @@ class FiltrationNotAllowed(SihponError):
     """
 
     pass
+
+
+class CannotAdjustExpression(SihponError):
+    """
+    Exception raised when an adjustment of an expression is not possible.
+    """
+
+    pass

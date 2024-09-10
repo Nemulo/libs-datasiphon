@@ -2,10 +2,9 @@ import unittest
 import sys
 import data
 import sqlalchemy as sa
+from copy import deepcopy
 
 sys.path.append(".")
-
-# TODO support for ignore and strict keyword deprecated
 
 
 class SQLTest(unittest.TestCase):
@@ -261,11 +260,6 @@ class SQLTest(unittest.TestCase):
         import src.siphon as ds
         from src.siphon.core import _exc as core_exc
 
-        # TODO:
-        # test select with multiple tables
-        # test select with directly referencing column which might not be in the select
-        # test labeled selects
-
         # prepare builder
         builder = ds.SqlQueryBuilder(
             {
@@ -413,10 +407,6 @@ class SQLTest(unittest.TestCase):
         import src.siphon as ds
         from src.siphon.core import _exc as core_exc
 
-        # TODO
-        # test junctions above column names - joining multiple columns as filtering
-        # test junctions below column names - joining multiple conditions on single column
-
         # prepare builder
         builder = ds.SqlQueryBuilder(
             {
@@ -545,8 +535,900 @@ class SQLTest(unittest.TestCase):
             ),
         )
 
+        # test multiple combined junctions
+        f_ = {
+            "or": {
+                "name": {"eq": "John"},
+                "and": {
+                    "age": {"gt": 20},
+                    "or": {"is_active": {"eq": True}, "created_at": {"gt": "2020-01-01"}},
+                },
+                "or": {"name": {"eq": "Doe"}, "age": {"lt": 20}},
+            }
+        }
+        self.assertEqual(
+            str(builder.build(data.basic_enum_select, f_)),
+            str(
+                data.basic_enum_select.where(
+                    sa.or_(
+                        data.test_table.c.name == "John",
+                        sa.and_(
+                            data.test_table.c.age > 20,
+                            sa.or_(
+                                data.test_table.c.is_active == True,
+                                data.test_table.c.created_at > "2020-01-01",
+                            ),
+                        ),
+                        sa.or_(
+                            data.test_table.c.name == "Doe",
+                            data.test_table.c.age < 20,
+                        ),
+                    )
+                )
+            ),
+        )
+
     # NOTE: special input types such as datetime, date, time, etc. are supported in string format
     # and handled by SQLAlchemy, so no need to test them here
+
+    def test_find_expression_in_filter(self):
+        import src.siphon as ds
+        from src.siphon.core import _exc as core_exc
+        from src.siphon import sql_filter as sqlf
+
+        # prepare builder
+        builder = ds.SqlQueryBuilder(
+            {
+                "tt": data.test_table,
+                "st": data.secondary_test,
+                "tts": data.table_with_time_stamp,
+            }
+        )
+        query_cols = ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+        # create complex expression
+        controll_expr, _ = builder.create_filter(
+            {
+                "and": {
+                    "name": {"eq": "John"},
+                    "age": {"gt": 20},
+                },
+                "or": {
+                    "age": {"lt": 10},
+                    "and": {
+                        "is_active": {"eq": True},
+                        "created_at": {"gt": "2020-01-01"},
+                    },
+                    "name": {"eq": "Doe"},
+                },
+            },
+            query_cols,
+        )
+        controll_copy = deepcopy(controll_expr)
+
+        root = controll_expr.find_expression([])
+        # verify structure
+        match root:
+            case sqlf.FilterExpression(
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    sqlf.FilterExpression(
+                        junction=sqlf.Junction.AND,
+                        column=None,
+                        operator=None,
+                        nested_expressions=[
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLEq(
+                                    filter_name="eq",
+                                    assigned_value="John",
+                                ),
+                                nested_expressions=[],
+                            ),
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLGt(
+                                    filter_name="gt",
+                                    assigned_value=20,
+                                ),
+                                nested_expressions=[],
+                            ),
+                        ],
+                    ),
+                    sqlf.FilterExpression(
+                        junction=sqlf.Junction.OR,
+                        column=None,
+                        operator=None,
+                        nested_expressions=[
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLLt(
+                                    filter_name="lt",
+                                    assigned_value=10,
+                                ),
+                                nested_expressions=[],
+                            ),
+                            sqlf.FilterExpression(
+                                junction=sqlf.Junction.AND,
+                                column=None,
+                                operator=None,
+                                nested_expressions=[
+                                    sqlf.FilterExpression(
+                                        junction=None,
+                                        column=_,
+                                        operator=sqlf.SQLEq(
+                                            filter_name="eq",
+                                            assigned_value=True,
+                                        ),
+                                        nested_expressions=[],
+                                    ),
+                                    sqlf.FilterExpression(
+                                        junction=None,
+                                        column=_,
+                                        operator=sqlf.SQLGt(
+                                            filter_name="gt",
+                                            assigned_value="2020-01-01",
+                                        ),
+                                        nested_expressions=[],
+                                    ),
+                                ],
+                            ),
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLEq(
+                                    filter_name="eq",
+                                    assigned_value="Doe",
+                                ),
+                                nested_expressions=[],
+                            ),
+                        ],
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # test finding expressions
+        # find first `and` junction
+        expr = controll_copy.find_expression(["and"])
+        match expr:
+            case sqlf.FilterExpression(
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    sqlf.FilterExpression(
+                        junction=None,
+                        column=_,
+                        operator=sqlf.SQLEq(
+                            filter_name="eq",
+                            assigned_value="John",
+                        ),
+                        nested_expressions=[],
+                    ),
+                    sqlf.FilterExpression(
+                        junction=None,
+                        column=_,
+                        operator=sqlf.SQLGt(
+                            filter_name="gt",
+                            assigned_value=20,
+                        ),
+                        nested_expressions=[],
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # find first `or` junction
+        expr = controll_copy.find_expression(["or"])
+
+        match expr:
+            case sqlf.FilterExpression(
+                junction=sqlf.Junction.OR,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    sqlf.FilterExpression(
+                        junction=None,
+                        column=_,
+                        operator=sqlf.SQLLt(
+                            filter_name="lt",
+                            assigned_value=10,
+                        ),
+                        nested_expressions=[],
+                    ),
+                    sqlf.FilterExpression(
+                        junction=sqlf.Junction.AND,
+                        column=None,
+                        operator=None,
+                        nested_expressions=[
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLEq(
+                                    filter_name="eq",
+                                    assigned_value=True,
+                                ),
+                                nested_expressions=[],
+                            ),
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLGt(
+                                    filter_name="gt",
+                                    assigned_value="2020-01-01",
+                                ),
+                                nested_expressions=[],
+                            ),
+                        ],
+                    ),
+                    sqlf.FilterExpression(
+                        junction=None,
+                        column=_,
+                        operator=sqlf.SQLEq(
+                            filter_name="eq",
+                            assigned_value="Doe",
+                        ),
+                        nested_expressions=[],
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # find `name` in `and` junction
+        expr = controll_copy.find_expression(["and", "name"])
+        match expr:
+            case sqlf.FilterExpression(
+                junction=None,
+                column=_,
+                operator=sqlf.SQLEq(
+                    filter_name="eq",
+                    assigned_value="John",
+                ),
+                nested_expressions=[],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # find nonexistent expression
+        expr = controll_copy.find_expression(["and", "is_active"])
+        self.assertIsNone(expr)
+
+        # find name:eq in `and` junction
+        expr = controll_copy.find_expression(["and", "name:eq"])
+
+        match expr:
+            case sqlf.FilterExpression(
+                junction=None,
+                column=_,
+                operator=sqlf.SQLEq(
+                    filter_name="eq",
+                    assigned_value="John",
+                ),
+                nested_expressions=[],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # find name:lt in `and` junction - should return None
+        expr = controll_copy.find_expression(["and", "name:lt"])
+        self.assertIsNone(expr)
+
+        # find name:eq-John in `and` junction
+        expr = controll_copy.find_expression(["and", "name:eq-John"])
+
+        match expr:
+            case sqlf.FilterExpression(
+                junction=None,
+                column=_,
+                operator=sqlf.SQLEq(
+                    filter_name="eq",
+                    assigned_value="John",
+                ),
+                nested_expressions=[],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # find name:eq-Doe in `or` junction
+        expr = controll_copy.find_expression(["and", "name:eq-Doe"])
+        self.assertIsNone(expr)
+
+        # find non existent nesting
+        expr = controll_copy.find_expression(["and", "and"])
+        self.assertIsNone(expr)
+
+        # find deeper nesting
+        expr = controll_copy.find_expression(["or", "and", "is_active:eq"])
+
+        match expr:
+            case sqlf.FilterExpression(
+                junction=None,
+                column=_,
+                operator=sqlf.SQLEq(
+                    filter_name="eq",
+                    assigned_value=True,
+                ),
+                nested_expressions=[],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+    def test_add_expression_to_filter(self):
+        import src.siphon as ds
+        from src.siphon.core import _exc as core_exc
+        from src.siphon import sql_filter as sqlf
+
+        # prepare builder
+        builder = ds.SqlQueryBuilder(
+            {
+                "tt": data.test_table,
+                "st": data.secondary_test,
+                "tts": data.table_with_time_stamp,
+            }
+        )
+        query_cols = ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+
+        # create simple expression and generatively add expressions to it
+        controll_expr, _ = builder.create_filter(
+            {
+                "age": {"gt": 20},
+            },
+            query_cols,
+        )
+
+        # create simple `name` expression
+        name_expr = sqlf.FilterExpression(
+            column=query_cols["name"],
+            operator=sqlf.SQLEq(
+                value="John",
+            ),
+        )
+
+        controll_copy = deepcopy(controll_expr)
+        # try to add `name` expression to `age` expression - should raise error
+        # since age is root expression
+        with self.assertRaises(core_exc.CannotAdjustExpression):
+            controll_copy.add_expression(["name"], name_expr)
+
+        # add `name` expression to root expression
+        controll_copy.add_expression([], name_expr)
+        # verify structure
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    sqlf.FilterExpression(
+                        junction=None,
+                        column=_,
+                        operator=sqlf.SQLGt(
+                            filter_name="gt",
+                            assigned_value=20,
+                        ),
+                        nested_expressions=[],
+                    ),
+                    sqlf.FilterExpression(
+                        junction=None,
+                        column=_,
+                        operator=sqlf.SQLEq(
+                            filter_name="eq",
+                            assigned_value="John",
+                        ),
+                        nested_expressions=[],
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # create "or" junction expression
+        or_expr = sqlf.FilterExpression.joined_expressions(
+            sqlf.Junction.OR,
+            sqlf.FilterExpression(
+                column=query_cols["is_active"],
+                operator=sqlf.SQLEq(
+                    value=True,
+                ),
+            ),
+            sqlf.FilterExpression(
+                column=query_cols["created_at"],
+                operator=sqlf.SQLGt(
+                    value="2020-01-01",
+                ),
+            ),
+        )
+
+        # add it to root expression
+        controll_copy.add_expression([], or_expr)
+        # verify structure
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    *_,
+                    sqlf.FilterExpression(
+                        junction=sqlf.Junction.OR,
+                        column=None,
+                        operator=None,
+                        nested_expressions=[
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLEq(
+                                    filter_name="eq",
+                                    assigned_value=True,
+                                ),
+                                nested_expressions=[],
+                            ),
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLGt(
+                                    filter_name="gt",
+                                    assigned_value="2020-01-01",
+                                ),
+                                nested_expressions=[],
+                            ),
+                        ],
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # add `is_active` expression to root.name expression with `or` junction
+        # creating new nesting level
+        controll_copy.add_expression(
+            ["name"],
+            sqlf.FilterExpression(
+                column=query_cols["is_active"],
+                operator=sqlf.SQLEq(
+                    value=True,
+                ),
+            ),
+            use_junction=sqlf.Junction.OR,
+        )
+        # verify structure
+
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    _,
+                    sqlf.FilterExpression(
+                        junction=sqlf.Junction.OR,
+                        column=None,
+                        operator=None,
+                        nested_expressions=[
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLEq(
+                                    filter_name="eq",
+                                    assigned_value="John",
+                                ),
+                                nested_expressions=[],
+                            ),
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLEq(
+                                    filter_name="eq",
+                                    assigned_value=True,
+                                ),
+                                nested_expressions=[],
+                            ),
+                        ],
+                    ),
+                    *_,
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # add `created_at` expression to root.or expression
+        created_at_junction = sqlf.FilterExpression(
+            column=query_cols["created_at"],
+            operator=sqlf.SQLGt(
+                value="2020-01-01",
+            ),
+        )
+        controll_copy.add_expression(
+            ["or"],
+            created_at_junction,
+        )
+        # verify structure
+
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    _,
+                    sqlf.FilterExpression(
+                        junction=sqlf.Junction.OR,
+                        column=None,
+                        operator=None,
+                        nested_expressions=[
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLEq(
+                                    filter_name="eq",
+                                    assigned_value="John",
+                                ),
+                                nested_expressions=[],
+                            ),
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLEq(
+                                    filter_name="eq",
+                                    assigned_value=True,
+                                ),
+                                nested_expressions=[],
+                            ),
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLGt(
+                                    filter_name="gt",
+                                    assigned_value="2020-01-01",
+                                ),
+                                nested_expressions=[],
+                            ),
+                        ],
+                    ),
+                    *_,
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+    def test_replace_expression_in_filter(self):
+        import src.siphon as ds
+        from src.siphon.core import _exc as core_exc
+        from src.siphon import sql_filter as sqlf
+
+        # prepare builder
+        builder = ds.SqlQueryBuilder(
+            {
+                "tt": data.test_table,
+                "st": data.secondary_test,
+                "tts": data.table_with_time_stamp,
+            }
+        )
+        query_cols = ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+
+        # create complex expression and replace parts of it
+        controll_expr, _ = builder.create_filter(
+            {
+                "and": {
+                    "name": {"eq": "John"},
+                    "age": {"gt": 20},
+                },
+                "or": {
+                    "age": {"lt": 10},
+                    "and": {
+                        "is_active": {"eq": True},
+                        "created_at": {"gt": "2020-01-01"},
+                    },
+                    "name": {"eq": "Doe"},
+                },
+            },
+            query_cols,
+        )
+        controll_copy = deepcopy(controll_expr)
+
+        # create simple `created_at` expression
+        created_at_expr = sqlf.FilterExpression(
+            column=query_cols["created_at"],
+            operator=sqlf.SQLGt(
+                value="2020-01-01",
+            ),
+        )
+        # replace `and.name` expression with `created_at` expression
+        controll_copy.replace_expression(["and", "name"], created_at_expr)
+        # verify structure
+
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    sqlf.FilterExpression(
+                        junction=sqlf.Junction.AND,
+                        column=None,
+                        operator=None,
+                        nested_expressions=[
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLGt(
+                                    filter_name="gt",
+                                    assigned_value="2020-01-01",
+                                ),
+                                nested_expressions=[],
+                            ),
+                            *_,
+                        ],
+                    ),
+                    *_,
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # replace `or.and` branch with created_at expression
+        controll_copy.replace_expression(["or", "and"], created_at_expr)
+        # verify structure
+
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    _,
+                    sqlf.FilterExpression(
+                        junction=sqlf.Junction.OR,
+                        column=None,
+                        operator=None,
+                        nested_expressions=[
+                            _,
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLGt(
+                                    filter_name="gt",
+                                    assigned_value="2020-01-01",
+                                ),
+                                nested_expressions=[],
+                            ),
+                            *_,
+                        ],
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+            # replace `or` branch with created_at expression
+        controll_copy.replace_expression(["or"], created_at_expr)
+        # verify structure
+
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    _,
+                    sqlf.FilterExpression(
+                        junction=None,
+                        column=_,
+                        operator=sqlf.SQLGt(
+                            filter_name="gt",
+                            assigned_value="2020-01-01",
+                        ),
+                        nested_expressions=[],
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # replace root expression with created_at expression
+        controll_copy.replace_expression([], created_at_expr)
+        # verify structure
+
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=None,
+                column=_,
+                operator=sqlf.SQLGt(
+                    filter_name="gt",
+                    assigned_value="2020-01-01",
+                ),
+                nested_expressions=[],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+    def test_remove_expression_from_filter(self):
+        import src.siphon as ds
+        from src.siphon.core import _exc as core_exc
+        from src.siphon import sql_filter as sqlf
+
+        # prepare builder
+        builder = ds.SqlQueryBuilder(
+            {
+                "tt": data.test_table,
+                "st": data.secondary_test,
+                "tts": data.table_with_time_stamp,
+            }
+        )
+
+        query_cols = ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+
+        # create complex expression and remove parts of it
+        controll_expr, _ = builder.create_filter(
+            {
+                "and": {
+                    "name": {"eq": "John"},
+                    "age": {"gt": 20},
+                },
+                "or": {
+                    "age": {"lt": 10},
+                    "and": {
+                        "is_active": {"eq": True},
+                        "created_at": {"gt": "2020-01-01"},
+                    },
+                    "name": {"eq": "Doe"},
+                },
+            },
+            query_cols,
+        )
+
+        controll_copy = deepcopy(controll_expr)
+
+        # remove `and.name` expression
+
+        controll_copy.remove_expression(["and", "name"])
+        # verify structure
+
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    sqlf.FilterExpression(
+                        junction=sqlf.Junction.AND,
+                        column=None,
+                        operator=None,
+                        nested_expressions=[
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLGt(
+                                    filter_name="gt",
+                                    assigned_value=20,
+                                ),
+                                nested_expressions=[],
+                            ),
+                        ],
+                    ),
+                    *_,
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # remove `or.and` expression
+
+        controll_copy.remove_expression(["or", "and"])
+        # verify structure
+
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    _,
+                    sqlf.FilterExpression(
+                        junction=sqlf.Junction.OR,
+                        column=None,
+                        operator=None,
+                        nested_expressions=[
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLLt(
+                                    filter_name="lt",
+                                    assigned_value=10,
+                                ),
+                                nested_expressions=[],
+                            ),
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLEq(
+                                    filter_name="eq",
+                                    assigned_value="Doe",
+                                ),
+                                nested_expressions=[],
+                            ),
+                        ],
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # remove `or` expression
+        controll_copy.remove_expression(["or"])
+        # verify structure
+
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    sqlf.FilterExpression(
+                        junction=sqlf.Junction.AND,
+                        column=None,
+                        operator=None,
+                        nested_expressions=[
+                            *_,
+                        ],
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+    def test_normalize_filter(self):
+        # TODO
+        ...
+
+    def test_reconstruct_filter(self):
+        import src.siphon as ds
+        from src.siphon.core import _exc as core_exc
+        from src.siphon import sql_filter as sqlf
+
+        # prepare builder
+        builder = ds.SqlQueryBuilder(
+            {
+                "tt": data.test_table,
+                "st": data.secondary_test,
+                "tts": data.table_with_time_stamp,
+            }
+        )
+
+        # create simple filter
+        f_ = {
+            "name": {"eq": "John"},
+            "age": {"gt": 20},
+        }
+        controll_expr, keyword_filter = builder.create_filter(
+            f_, ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+        )
 
 
 if __name__ == "__main__":

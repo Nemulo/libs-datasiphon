@@ -1,11 +1,12 @@
 from .core import _filter_core as core
-from .core._exc import InvalidValueTypeError, ColumnError, FiltrationNotAllowed
+from .core._exc import InvalidValueTypeError, ColumnError, FiltrationNotAllowed, CannotAdjustExpression
 from sqlalchemy import Table, Select, and_ as sa_and, or_ as sa_or, asc as sa_asc, desc as sa_desc
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.base import ColumnCollection
 from qstion._struct_core import QsRoot, QsNode
 import enum
 import typing as t
+from copy import deepcopy
 
 import functools
 
@@ -91,7 +92,7 @@ def get_restriction(
 
 class FilterExpression:
     junction: Junction | None
-    nested_expressions: list["FilterExpression"] | None
+    nested_expressions: list["FilterExpression"]
     column: ColumnElement
     operator: core.FilterOperation
 
@@ -99,7 +100,7 @@ class FilterExpression:
         self.column = column
         self.operator = operator
         self.junction = None
-        self.nested_expressions = None
+        self.nested_expressions = []
 
     @classmethod
     def joined_expressions(cls, junction: Junction, *expressions: "FilterExpression") -> "FilterExpression":
@@ -124,6 +125,230 @@ class FilterExpression:
         if self.is_junction:
             return self.junction.value(*[expr.produce_whereclause() for expr in self.nested_expressions])
         return self.operator.evaluate(self.column)
+
+    def add_expression(
+        self, path: list[str] | str, expression: "FilterExpression", use_junction: Junction = Junction.AND
+    ) -> None:
+        """
+        Adds a new expression to the instance.
+
+        If path is None, the expression is added to the current instance.
+        NOTE: if current instance is not a junction - implicit and junction is created if not specified what `junction` to use.
+        Otherwise, the expression is added to the nested expression with omitted specified junction.
+        If path is a string, it is split by "." and the expression is added to the corresponding nested expression.
+        If path is a list of strings, the expression is added to the corresponding nested expression.
+        also NOTE: that path is only consisting of junctions, since the column is already specified in the expression. - for navigation
+        to correct nested expression.
+
+        Args:
+            path (list[str] | str | None): A path to the nested expression.
+            expression (FilterExpression): A new expression to add.
+
+        Raises:
+            CannotAdjustExpression: If the path is invalid.
+        """
+        if not path:
+            # add to root
+            if self.is_junction:
+                self.nested_expressions.append(expression)
+            # create junction - with provided `use_junction` arg (default AND)
+            else:
+                # create copy of self
+                new_instance = deepcopy(self)
+                self.junction = use_junction
+                self.nested_expressions = [new_instance, expression]
+                # clear column and operator
+                self.column = None
+                self.operator = None
+            return
+        elif not isinstance(path, list):
+            path = path.split(".")
+        # find target expression
+        target_expr = self.find_expression(path)
+        if target_expr is None:
+            raise CannotAdjustExpression("Destination expression not found.")
+        target_expr.add_expression([], expression, use_junction)
+
+    def find_expression(self, path: list[str] | str) -> t.Union["FilterExpression", None]:
+        """
+        Finds an expression based on the path.
+
+        If path is None, the current instance is returned.
+        If path is a string, it is split by "." and the corresponding nested expression is returned.
+        If path is a list of strings, the corresponding nested expression is returned.
+        NOTE:
+        path must be all - except last item - junctions
+        last item can be either junction or simple expression in following format:
+        either `column_name` or `column_name:operator`, or even `column_name:operator-value`
+
+        Args:
+            path (list[str] | str | None): A path to the nested expression.
+
+        Returns:
+            FilterExpression: A found expression.
+
+        Raises:
+            CannotAdjustExpression: If the path is invalid.
+        """
+
+        if not path:
+            return self
+        if not isinstance(path, list):
+            path = path.split(".")
+        if not all(item in core.QueryBuilder.JUNCTIONS for item in path[:-1]):
+            raise CannotAdjustExpression("Invalid path.")
+        if len(path) == 1:
+            # try to process the last item
+            if path[0] in core.QueryBuilder.JUNCTIONS:
+                return next(
+                    (expr for expr in self.nested_expressions if expr.junction == Junction.from_str(path[0])), None
+                )
+            else:
+                column_definition = path[0].split(":")
+                if len(column_definition) == 1:
+                    return next(
+                        (expr for expr in self.nested_expressions if expr.column.key == column_definition[0]), None
+                    )
+                elif len(column_definition) == 2:
+                    # try to split value from operator
+                    operator_definition = column_definition[1].split("-")
+                    if len(operator_definition) == 1:
+                        return next(
+                            (
+                                expr
+                                for expr in self.nested_expressions
+                                if expr.column.key == column_definition[0]
+                                and expr.operator.filter_name == operator_definition[0]
+                            ),
+                            None,
+                        )
+                    return next(
+                        (
+                            expr
+                            for expr in self.nested_expressions
+                            if expr.column is not None
+                            and expr.column.key == column_definition[0]
+                            and expr.operator.filter_name == operator_definition[0]
+                            and expr.operator.assigned_value == operator_definition[1]
+                        ),
+                        None,
+                    )
+        else:
+            target_expr = self
+            for junction in path[:-1]:
+                target_expr = next(
+                    (expr for expr in target_expr.nested_expressions if expr.junction == Junction.from_str(junction)),
+                    None,
+                )
+                if target_expr is None:
+                    return None
+            return target_expr.find_expression(path[-1])
+
+    def replace_expression(self, path: list[str] | str, expression: "FilterExpression") -> None:
+        """
+        Replaces an expression based on the path.
+        Contrary to `add_expression`, path can contain non-junction elements for targeting the specific simple expressions as well.
+        NOTE that this simple element can be located only on the last position in the path.
+
+        Args:
+            path (list[str] | str): A path to the nested expression.
+            expression (FilterExpression): An expression to replace the found one.
+        """
+        if not path:
+            self.replace(expression)
+            return
+        if not isinstance(path, list):
+            path = path.split(".")
+        target_expr = self.find_expression(path)
+        if target_expr is None:
+            raise CannotAdjustExpression("Destination expression not found.")
+        target_expr.replace(expression)
+
+    def replace(self, other: "FilterExpression") -> None:
+        """
+        Replaces the current expression with another one.
+        """
+        self.junction = other.junction
+        self.nested_expressions = other.nested_expressions
+        self.column = other.column
+        self.operator = other.operator
+
+    def remove_expression(self, path: list[str] | str) -> None:
+        """
+        Works similiarly as `replace_expression`, but removes the found expression.
+        """
+        if not path:
+            raise CannotAdjustExpression("Cannot remove the root expression.")
+        if not isinstance(path, list):
+            path = path.split(".")
+        target_expr = self.find_expression(path)
+        if target_expr is None:
+            raise CannotAdjustExpression("Destination expression not found.")
+        parent_expr = self.find_expression(path[:-1])
+        parent_expr.nested_expressions.remove(target_expr)
+
+    def normalize(self) -> None:
+        """
+        Normalizes filter expression by removing redundant junctions,
+        and merging simple expressions with same column key into junction.
+        """
+        # traverse from root - preorder like, except leave leaf nodes be
+        if self.is_junction:
+            for expr in self.nested_expressions:
+                expr.normalize()
+        else:
+            # simple expression
+            return
+        # 1. merge simple expressions with same column key into `and` junction
+        current_node_mapping = {expr.column.key: [] for expr in self.nested_expressions if not expr.is_junction}
+        for expr in self.nested_expressions:
+            if not expr.is_junction:
+                current_node_mapping[expr.column.key].append(expr)
+        for column_key, expr_list in current_node_mapping.items():
+            if len(expr_list) > 1:
+                # merge into junction
+                junction = FilterExpression.joined_expressions(Junction.AND, *expr_list)
+                # remove these expressions from nested expressions
+                for expr in expr_list:
+                    self.nested_expressions.remove(expr)
+                self.nested_expressions.append(junction)
+        # 2. remove redundant junctions - merge junctions with same name
+        current_node_junction_mapping = {expr.junction: [] for expr in self.nested_expressions if expr.is_junction}
+        for expr in self.nested_expressions:
+            if expr.is_junction:
+                current_node_junction_mapping[expr.junction].append(expr)
+        for junction, expr_list in current_node_junction_mapping.items():
+            if len(expr_list) > 1:
+                # merge it's nested expressions into one junction
+                all_junction_nested = []
+                for expr in expr_list:
+                    all_junction_nested.extend(expr.nested_expressions)
+                junction = FilterExpression.joined_expressions(junction, *all_junction_nested)
+                # remove these expressions from nested expressions
+                for expr in expr_list:
+                    self.nested_expressions.remove(expr)
+                self.nested_expressions.append(junction)
+        # At this point, there are only unqiue simple expressions and unique junctions in nested expressions
+        # any junction that has only one nested expression should be removed and its nested expression should be moved to parent junction
+        # 3. remove junctions with only one nested expression
+        for expr in self.nested_expressions:
+            if expr.is_junction and len(expr.nested_expressions) == 1:
+                expr.replace(expr.nested_expressions[0])
+        # 4. remove empty junctions
+        self.nested_expressions = [
+            expr for expr in self.nested_expressions if not expr.is_junction or expr.nested_expressions
+        ]
+        # Done
+
+    def dump(self):
+        """
+        Dumps the expression into a dictionary.
+        """
+        if self.is_junction:
+            # check whether junction contains more than one expression, otherwise is obsolete
+            if len(self.nested_expressions) == 1:
+                return self.nested_expressions[0].dump()
+            ...
 
 
 class SqlKeywordFilter:
@@ -324,3 +549,11 @@ class SqlQueryBuilder(core.QueryBuilder):
     @staticmethod
     def extract_columns(query: Select) -> ColumnCollection:
         return query.selected_columns
+
+
+def reconstruct_filtering(expression: FilterExpression, keywords: SqlKeywordFilter) -> QsRoot:
+    """
+    Reconstructs filtering object from a dictionary.
+    """
+    # 1. iterate over expression and dump it into a dictionary
+    # 2. iterate over keywords and dump them into a dictionary
