@@ -13,7 +13,7 @@ pip install datasiphon
 ## Usage
 
 ```python
-from siphon import SqlQueryBuilder
+from datasiphon import SqlQueryBuilder
 import sqlalchemy as sa
 # Create a filter
 filter_ = {

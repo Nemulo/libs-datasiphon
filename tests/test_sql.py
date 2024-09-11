@@ -10,8 +10,8 @@ sys.path.append(".")
 class SQLTest(unittest.TestCase):
 
     def test_incorrect_formats(self):
-        import src.siphon as ds
-        from src.siphon.core import _exc as core_exc
+        import src.datasiphon as ds
+        from src.datasiphon import _exc as core_exc
 
         # set up builder
         builder = ds.SqlQueryBuilder(
@@ -60,8 +60,8 @@ class SQLTest(unittest.TestCase):
             builder.build(data.basic_enum_select, f_)
 
     def test_basic_select(self):
-        import src.siphon as ds
-        from src.siphon.core import _exc as core_exc
+        import src.datasiphon as ds
+        from src.datasiphon import _exc as core_exc
 
         # set up builder
         builder = ds.SqlQueryBuilder(
@@ -107,7 +107,7 @@ class SQLTest(unittest.TestCase):
         )
 
     def test_select_keywords(self):
-        import src.siphon as ds
+        import src.datasiphon as ds
 
         # set up builder
         builder = ds.SqlQueryBuilder(
@@ -176,8 +176,8 @@ class SQLTest(unittest.TestCase):
         )
 
     def test_select_operators(self):
-        import src.siphon as ds
-        from src.siphon.core import _exc as core
+        import src.datasiphon as ds
+        from src.datasiphon import _exc as core_exc
 
         # set up builder
         builder = ds.SqlQueryBuilder(
@@ -232,7 +232,7 @@ class SQLTest(unittest.TestCase):
 
         # test in_
         # if not list - should raise error
-        with self.assertRaises(core.InvalidValueTypeError):
+        with self.assertRaises(core_exc.InvalidValueTypeError):
             f_ = {"name": {"in_": "John"}}
             builder.build(data.basic_enum_select, f_)
 
@@ -245,7 +245,7 @@ class SQLTest(unittest.TestCase):
 
         # test not_in
         # if not list - should raise error
-        with self.assertRaises(core.InvalidValueTypeError):
+        with self.assertRaises(core_exc.InvalidValueTypeError):
             f_ = {"name": {"nin": "John"}}
             builder.build(data.basic_enum_select, f_)
 
@@ -257,8 +257,8 @@ class SQLTest(unittest.TestCase):
         )
 
     def test_advanced_selects(self):
-        import src.siphon as ds
-        from src.siphon.core import _exc as core_exc
+        import src.datasiphon as ds
+        from src.datasiphon import _exc as core_exc
 
         # prepare builder
         builder = ds.SqlQueryBuilder(
@@ -352,8 +352,8 @@ class SQLTest(unittest.TestCase):
         )
 
     def test_filter_restrictions(self):
-        import src.siphon as ds
-        from src.siphon.core import _exc as core_exc
+        import src.datasiphon as ds
+        from src.datasiphon import _exc as core_exc
 
         # prepare builder
         builder = ds.SqlQueryBuilder(
@@ -404,8 +404,8 @@ class SQLTest(unittest.TestCase):
         )
 
     def test_junctions(self):
-        import src.siphon as ds
-        from src.siphon.core import _exc as core_exc
+        import src.datasiphon as ds
+        from src.datasiphon import _exc as core_exc
 
         # prepare builder
         builder = ds.SqlQueryBuilder(
@@ -572,9 +572,9 @@ class SQLTest(unittest.TestCase):
     # and handled by SQLAlchemy, so no need to test them here
 
     def test_find_expression_in_filter(self):
-        import src.siphon as ds
-        from src.siphon.core import _exc as core_exc
-        from src.siphon import sql_filter as sqlf
+        import src.datasiphon as ds
+        from src.datasiphon import _exc as core_exc
+        from src.datasiphon import sql_filter as sqlf
 
         # prepare builder
         builder = ds.SqlQueryBuilder(
@@ -869,9 +869,9 @@ class SQLTest(unittest.TestCase):
                 self.fail("Incorrect structure")
 
     def test_add_expression_to_filter(self):
-        import src.siphon as ds
-        from src.siphon.core import _exc as core_exc
-        from src.siphon import sql_filter as sqlf
+        import src.datasiphon as ds
+        from src.datasiphon.core import _exc as core_exc
+        from src.datasiphon import sql_filter as sqlf
 
         # prepare builder
         builder = ds.SqlQueryBuilder(
@@ -1111,9 +1111,9 @@ class SQLTest(unittest.TestCase):
                 self.fail("Incorrect structure")
 
     def test_replace_expression_in_filter(self):
-        import src.siphon as ds
-        from src.siphon.core import _exc as core_exc
-        from src.siphon import sql_filter as sqlf
+        import src.datasiphon as ds
+        from src.datasiphon.core import _exc as core_exc
+        from src.datasiphon import sql_filter as sqlf
 
         # prepare builder
         builder = ds.SqlQueryBuilder(
@@ -1266,9 +1266,9 @@ class SQLTest(unittest.TestCase):
                 self.fail("Incorrect structure")
 
     def test_remove_expression_from_filter(self):
-        import src.siphon as ds
-        from src.siphon.core import _exc as core_exc
-        from src.siphon import sql_filter as sqlf
+        import src.datasiphon as ds
+        from src.datasiphon.core import _exc as core_exc
+        from src.datasiphon import sql_filter as sqlf
 
         # prepare builder
         builder = ds.SqlQueryBuilder(
@@ -1404,9 +1404,9 @@ class SQLTest(unittest.TestCase):
                 self.fail("Incorrect structure")
 
     def test_normalize_filter(self):
-        import src.siphon as ds
-        from src.siphon.core import _exc as core_exc
-        from src.siphon import sql_filter as sqlf
+        import src.datasiphon as ds
+        from src.datasiphon.core import _exc as core_exc
+        from src.datasiphon import sql_filter as sqlf
 
         # prepare builder
         builder = ds.SqlQueryBuilder(
@@ -1552,9 +1552,9 @@ class SQLTest(unittest.TestCase):
                 self.fail("Incorrect structure")
 
     def test_reconstruct_filter(self):
-        import src.siphon as ds
-        from src.siphon.core import _exc as core_exc
-        from src.siphon import sql_filter as sqlf
+        import src.datasiphon as ds
+        from src.datasiphon.core import _exc as core_exc
+        from src.datasiphon import sql_filter as sqlf
         from qstion._struct_core import QsRoot, QsNode
 
         # prepare builder
