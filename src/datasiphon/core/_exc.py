@@ -1,4 +1,4 @@
-class SihponError(Exception):
+class SiphonError(Exception):
     """
     Base exception for all Siphon exceptions.
     """
@@ -6,7 +6,7 @@ class SihponError(Exception):
     pass
 
 
-class InvalidValueTypeError(SihponError):
+class InvalidValueTypeError(SiphonError):
     """
     Exception raised when an invalid value type is provided.
     """
@@ -14,7 +14,7 @@ class InvalidValueTypeError(SihponError):
     pass
 
 
-class NoSuchOperationError(SihponError):
+class NoSuchOperationError(SiphonError):
     """
     Exception raised when an invalid operation is provided.
     """
@@ -22,7 +22,7 @@ class NoSuchOperationError(SihponError):
     pass
 
 
-class InvalidFilteringStructureError(SihponError):
+class InvalidFilteringStructureError(SiphonError):
     """
     Exception raised when an invalid filtering structure is provided.
     """
@@ -30,7 +30,7 @@ class InvalidFilteringStructureError(SihponError):
     pass
 
 
-class ColumnError(SihponError):
+class ColumnError(SiphonError):
     """
     Base exception for all column-related exceptions.
     """
@@ -38,7 +38,7 @@ class ColumnError(SihponError):
     pass
 
 
-class BadFormatError(SihponError):
+class BadFormatError(SiphonError):
     """
     Exception raised when an invalid format is provided.
     """
@@ -46,7 +46,7 @@ class BadFormatError(SihponError):
     pass
 
 
-class FiltrationNotAllowed(SihponError):
+class FiltrationNotAllowed(SiphonError):
     """
     Exception raised when an invalid filtration is provided.
     """
@@ -54,7 +54,7 @@ class FiltrationNotAllowed(SihponError):
     pass
 
 
-class CannotAdjustExpression(SihponError):
+class CannotAdjustExpression(SiphonError):
     """
     Exception raised when an adjustment of an expression is not possible.
     """
