@@ -181,6 +181,12 @@ new_query = sql.SqlQueryBuilder({"users": table}).build(query, filter_)
     ```
 
 - generating query: recursively collecting items from filter, and applying filtering directly to exported columns of given query
+#### Manipulating `FilterExpression` object
+- `FilterExpression` object is a tree-like structure representing filter dictionary in a way that can be easily manipulated
+- Expressions can be added via `add_expression` method
+- Expressions can be replaced via `replace_expression` method
+- Expressions can be removed via `remove_expression` method
+- Expressions can be retrieved via `find_expression` method
 
 #### Reconstructing filter from `FilterExpression` and `SqlKeywordFilter` objects
 
