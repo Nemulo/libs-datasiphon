@@ -338,12 +338,12 @@ class SqlKeywordFilter:
 
     limit: int | None
     offset: int | None
-    order_by: list[UnaryExpression] | None
+    order_by: list[UnaryExpression]
 
     def __init__(self):
         self.limit = None
         self.offset = None
-        self.order_by = None
+        self.order_by = []
 
     def add_keyword(self, keyword: str, value: t.Any) -> None:
         if keyword == "limit":
@@ -362,7 +362,7 @@ class SqlKeywordFilter:
         self.offset = offset
 
     def add_order_by(self, *columns: ColumnElement) -> None:
-        self.order_by = list(columns)
+        self.order_by.extend(columns)
 
     def apply(self, query: Select) -> Select:
         if self.limit is not None:
@@ -383,7 +383,7 @@ class SqlKeywordFilter:
             data["limit"] = self.limit
         if self.offset is not None:
             data["offset"] = self.offset
-        if self.order_by is not None:
+        if self.order_by:
             # parse always from `UnaryExpression` to string
             # use sign notation for direction
             data["order_by"] = (
