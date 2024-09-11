@@ -79,6 +79,12 @@ class FilterOperation:
     def __eq__(self, other: "FilterOperation") -> bool:
         return isinstance(other, type(self)) and self.assigned_value == other.assigned_value
 
+    def dump(self) -> dict[str, t.Any]:
+        """
+        Dumps the operation to a dictionary.
+        """
+        return {self.filter_name: self.assigned_value}
+
 
 # Core operations:
 # eq - equals

@@ -1,7 +1,8 @@
 from .core import _filter_core as core
 from .core._exc import InvalidValueTypeError, ColumnError, FiltrationNotAllowed, CannotAdjustExpression
 from sqlalchemy import Table, Select, and_ as sa_and, or_ as sa_or, asc as sa_asc, desc as sa_desc
-from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.elements import ColumnElement, UnaryExpression
+import sqlalchemy.sql.operators as sql_operators
 from sqlalchemy.sql.base import ColumnCollection
 from qstion._struct_core import QsRoot, QsNode
 import enum
@@ -207,7 +208,12 @@ class FilterExpression:
                 column_definition = path[0].split(":")
                 if len(column_definition) == 1:
                     return next(
-                        (expr for expr in self.nested_expressions if expr.column.key == column_definition[0]), None
+                        (
+                            expr
+                            for expr in self.nested_expressions
+                            if expr.column is not None and expr.column.key == column_definition[0]
+                        ),
+                        None,
                     )
                 elif len(column_definition) == 2:
                     # try to split value from operator
@@ -299,56 +305,29 @@ class FilterExpression:
         else:
             # simple expression
             return
-        # 1. merge simple expressions with same column key into `and` junction
-        current_node_mapping = {expr.column.key: [] for expr in self.nested_expressions if not expr.is_junction}
-        for expr in self.nested_expressions:
-            if not expr.is_junction:
-                current_node_mapping[expr.column.key].append(expr)
-        for column_key, expr_list in current_node_mapping.items():
-            if len(expr_list) > 1:
-                # merge into junction
-                junction = FilterExpression.joined_expressions(Junction.AND, *expr_list)
-                # remove these expressions from nested expressions
-                for expr in expr_list:
-                    self.nested_expressions.remove(expr)
-                self.nested_expressions.append(junction)
-        # 2. remove redundant junctions - merge junctions with same name
-        current_node_junction_mapping = {expr.junction: [] for expr in self.nested_expressions if expr.is_junction}
-        for expr in self.nested_expressions:
-            if expr.is_junction:
-                current_node_junction_mapping[expr.junction].append(expr)
-        for junction, expr_list in current_node_junction_mapping.items():
-            if len(expr_list) > 1:
-                # merge it's nested expressions into one junction
-                all_junction_nested = []
-                for expr in expr_list:
-                    all_junction_nested.extend(expr.nested_expressions)
-                junction = FilterExpression.joined_expressions(junction, *all_junction_nested)
-                # remove these expressions from nested expressions
-                for expr in expr_list:
-                    self.nested_expressions.remove(expr)
-                self.nested_expressions.append(junction)
-        # At this point, there are only unqiue simple expressions and unique junctions in nested expressions
-        # any junction that has only one nested expression should be removed and its nested expression should be moved to parent junction
-        # 3. remove junctions with only one nested expression
-        for expr in self.nested_expressions:
-            if expr.is_junction and len(expr.nested_expressions) == 1:
-                expr.replace(expr.nested_expressions[0])
-        # 4. remove empty junctions
+        # 1. remove empty junctions
         self.nested_expressions = [
             expr for expr in self.nested_expressions if not expr.is_junction or expr.nested_expressions
         ]
-        # Done
+        # 2. replace junctions with only one nested expression with the nested expression
+        if self.is_junction and len(self.nested_expressions) == 1:
+            self.replace(self.nested_expressions[0])
+        # done
 
     def dump(self):
         """
         Dumps the expression into a dictionary.
         """
         if self.is_junction:
-            # check whether junction contains more than one expression, otherwise is obsolete
-            if len(self.nested_expressions) == 1:
-                return self.nested_expressions[0].dump()
-            ...
+            # after normalization, there should be no junctions with only one nested expression
+            # e.g recursively dump nested expressions and their name should be unique
+            data = {}
+            for expr in self.nested_expressions:
+                data.update(expr.dump())
+            return {self.junction.name.lower(): data}
+        else:
+            # simple expression
+            return {self.column.key: self.operator.dump()}
 
 
 class SqlKeywordFilter:
@@ -358,7 +337,7 @@ class SqlKeywordFilter:
 
     limit: int | None
     offset: int | None
-    order_by: list[ColumnElement] | None
+    order_by: list[UnaryExpression] | None
 
     def __init__(self):
         self.limit = None
@@ -392,6 +371,26 @@ class SqlKeywordFilter:
         if self.order_by is not None:
             query = query.order_by(*self.order_by)
         return query
+
+    def to_dict(self) -> dict[str, t.Any]:
+        order_by_direction = {
+            sql_operators.asc_op: "+",
+            sql_operators.desc_op: "-",
+        }
+        data = {}
+        if self.limit is not None:
+            data["limit"] = self.limit
+        if self.offset is not None:
+            data["offset"] = self.offset
+        if self.order_by is not None:
+            # parse always from `UnaryExpression` to string
+            # use sign notation for direction
+            data["order_by"] = (
+                [f"{order_by_direction[c.modifier]}{c.element.key}" for c in self.order_by]
+                if len(self.order_by) > 1
+                else f"{order_by_direction[self.order_by[0].modifier]}{self.order_by[0].element.key}"
+            )
+        return data
 
 
 class SqlQueryBuilder(core.QueryBuilder):
@@ -551,9 +550,22 @@ class SqlQueryBuilder(core.QueryBuilder):
         return query.selected_columns
 
 
-def reconstruct_filtering(expression: FilterExpression, keywords: SqlKeywordFilter) -> QsRoot:
+def reconstruct_filtering(
+    expression: FilterExpression, keywords: SqlKeywordFilter, as_obj: bool = False
+) -> dict | QsRoot:
     """
     Reconstructs filtering object from a dictionary.
     """
     # 1. iterate over expression and dump it into a dictionary
     # 2. iterate over keywords and dump them into a dictionary
+    expression.normalize()
+    filter_dump = expression.dump()
+    keyword_dump = keywords.to_dict()
+    filter_dump.update(keyword_dump)
+    root = QsRoot()
+    for key, value in filter_dump.items():
+        node = QsNode.load_from_dict(key, value, parse_array=True)
+        root.add_child(node)
+    if as_obj:
+        return root
+    return root.to_dict()

@@ -1404,13 +1404,158 @@ class SQLTest(unittest.TestCase):
                 self.fail("Incorrect structure")
 
     def test_normalize_filter(self):
-        # TODO
-        ...
+        import src.siphon as ds
+        from src.siphon.core import _exc as core_exc
+        from src.siphon import sql_filter as sqlf
+
+        # prepare builder
+        builder = ds.SqlQueryBuilder(
+            {
+                "tt": data.test_table,
+                "st": data.secondary_test,
+                "tts": data.table_with_time_stamp,
+            }
+        )
+        query_cols = ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+
+        # prepare simple filter with one element, normalizable filter
+        # 1. case: Junction with one element - should return the element
+
+        controll = sqlf.FilterExpression.joined_expressions(
+            sqlf.Junction.AND,
+            sqlf.FilterExpression(
+                column=query_cols["name"],
+                operator=sqlf.SQLEq(
+                    value="John",
+                ),
+            ),
+            sqlf.FilterExpression(
+                column=query_cols["age"],
+                operator=sqlf.SQLGt(
+                    value=20,
+                ),
+            ),
+        )
+        # remove `age` expression
+        controll.remove_expression(["age"])
+
+        controll_copy = deepcopy(controll)
+        controll_copy.normalize()
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=None,
+                column=_,
+                operator=sqlf.SQLEq(
+                    filter_name="eq",
+                    assigned_value="John",
+                ),
+                nested_expressions=[],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # mutiple nesting levels with one element
+        controll = sqlf.FilterExpression.joined_expressions(
+            sqlf.Junction.AND,
+            sqlf.FilterExpression.joined_expressions(
+                sqlf.Junction.OR,
+                sqlf.FilterExpression(
+                    column=query_cols["name"],
+                    operator=sqlf.SQLEq(
+                        value="John",
+                    ),
+                ),
+                sqlf.FilterExpression(
+                    column=query_cols["age"],
+                    operator=sqlf.SQLGt(
+                        value=20,
+                    ),
+                ),
+            ),
+            sqlf.FilterExpression(
+                column=query_cols["is_active"],
+                operator=sqlf.SQLEq(
+                    value=True,
+                ),
+            ),
+        )
+        # remove `age` expression
+        controll.remove_expression(["or", "age"])
+        # remove `is_active` expression
+        controll.remove_expression(["is_active"])
+
+        controll_copy = deepcopy(controll)
+        controll_copy.normalize()
+        # verify structure
+
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=None,
+                column=_,
+                operator=sqlf.SQLEq(
+                    filter_name="eq",
+                    assigned_value="John",
+                ),
+                nested_expressions=[],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # remove empty nested expressions
+        controll = sqlf.FilterExpression.joined_expressions(
+            sqlf.Junction.AND,
+            sqlf.FilterExpression(
+                column=query_cols["name"],
+                operator=sqlf.SQLEq(
+                    value="John",
+                ),
+            ),
+            sqlf.FilterExpression.joined_expressions(
+                sqlf.Junction.OR,
+                sqlf.FilterExpression(
+                    column=query_cols["age"],
+                    operator=sqlf.SQLGt(
+                        value=20,
+                    ),
+                ),
+                sqlf.FilterExpression(
+                    column=query_cols["is_active"],
+                    operator=sqlf.SQLEq(
+                        value=True,
+                    ),
+                ),
+            ),
+        )
+        # remove `is_active` expression
+        controll.remove_expression(["or", "is_active"])
+        # remove `age` expression
+        controll.remove_expression(["or", "age"])
+
+        controll_copy = deepcopy(controll)
+        controll_copy.normalize()
+        # verify structure
+
+        match controll_copy:
+            case sqlf.FilterExpression(
+                junction=None,
+                column=_,
+                operator=sqlf.SQLEq(
+                    filter_name="eq",
+                    assigned_value="John",
+                ),
+                nested_expressions=[],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
 
     def test_reconstruct_filter(self):
         import src.siphon as ds
         from src.siphon.core import _exc as core_exc
         from src.siphon import sql_filter as sqlf
+        from qstion._struct_core import QsRoot, QsNode
 
         # prepare builder
         builder = ds.SqlQueryBuilder(
@@ -1428,6 +1573,330 @@ class SQLTest(unittest.TestCase):
         }
         controll_expr, keyword_filter = builder.create_filter(
             f_, ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+        )
+        # reconstruct filter
+        reconstructed = sqlf.reconstruct_filtering(controll_expr, keyword_filter, as_obj=True)
+        # verify structure
+        match reconstructed:
+            case QsRoot(
+                parameter_limit=_,
+                children=[
+                    QsNode(
+                        auto_set_key=_,
+                        key="and",
+                        value=[
+                            QsNode(
+                                auto_set_key=_,
+                                key="name",
+                                value=[
+                                    QsNode(
+                                        auto_set_key=_,
+                                        key="eq",
+                                        value="John",
+                                    ),
+                                ],
+                            ),
+                            QsNode(
+                                auto_set_key=_,
+                                key="age",
+                                value=[
+                                    QsNode(
+                                        auto_set_key=_,
+                                        key="gt",
+                                        value=20,
+                                    ),
+                                ],
+                            ),
+                        ],
+                    )
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # test array
+        f_ = {
+            "name": {"in_": ["John", "Doe"]},
+        }
+        controll_expr, keyword_filter = builder.create_filter(
+            f_, ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+        )
+        # reconstruct filter
+        reconstructed = sqlf.reconstruct_filtering(controll_expr, keyword_filter, as_obj=True)
+        # verify structure
+        match reconstructed:
+            case QsRoot(
+                parameter_limit=_,
+                children=[
+                    QsNode(
+                        auto_set_key=_,
+                        key="name",
+                        value=[
+                            QsNode(
+                                auto_set_key=_,
+                                key="in_",
+                                value=[
+                                    QsNode(
+                                        auto_set_key=_,
+                                        key=0,
+                                        value="John",
+                                    ),
+                                    QsNode(
+                                        auto_set_key=_,
+                                        key=1,
+                                        value="Doe",
+                                    ),
+                                ],
+                            ),
+                        ],
+                    )
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+            # test nested
+        f_ = {
+            "and": {
+                "name": {"eq": "John"},
+                "or": {
+                    "age": {"gt": 20},
+                    "is_active": {"eq": True},
+                },
+            }
+        }
+        controll_expr, keyword_filter = builder.create_filter(
+            f_, ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+        )
+        # reconstruct filter
+        reconstructed = sqlf.reconstruct_filtering(controll_expr, keyword_filter, as_obj=True)
+        # verify structure
+
+        match reconstructed:
+            case QsRoot(
+                parameter_limit=_,
+                children=[
+                    QsNode(
+                        auto_set_key=_,
+                        key="and",
+                        value=[
+                            QsNode(
+                                auto_set_key=_,
+                                key="name",
+                                value=[
+                                    QsNode(
+                                        auto_set_key=_,
+                                        key="eq",
+                                        value="John",
+                                    ),
+                                ],
+                            ),
+                            QsNode(
+                                auto_set_key=_,
+                                key="or",
+                                value=[
+                                    QsNode(
+                                        auto_set_key=_,
+                                        key="age",
+                                        value=[
+                                            QsNode(
+                                                auto_set_key=_,
+                                                key="gt",
+                                                value=20,
+                                            ),
+                                        ],
+                                    ),
+                                    QsNode(
+                                        auto_set_key=_,
+                                        key="is_active",
+                                        value=[
+                                            QsNode(
+                                                auto_set_key=_,
+                                                key="eq",
+                                                value=True,
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    )
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # test keyword filter - limit
+        f_ = {
+            "name": {"eq": "John"},
+            "age": {"gt": 20},
+            "limit": 10,
+        }
+        controll_expr, keyword_filter = builder.create_filter(
+            f_, ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+        )
+        # reconstruct filter
+        reconstructed = sqlf.reconstruct_filtering(controll_expr, keyword_filter, as_obj=True)
+        # verify structure
+
+        match reconstructed:
+            case QsRoot(
+                parameter_limit=_,
+                children=[
+                    _,
+                    QsNode(
+                        auto_set_key=_,
+                        key="limit",
+                        value=10,
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # test keyword filter - offset
+        f_ = {
+            "name": {"eq": "John"},
+            "age": {"gt": 20},
+            "offset": 5,
+        }
+        controll_expr, keyword_filter = builder.create_filter(
+            f_, ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+        )
+        # reconstruct filter
+        reconstructed = sqlf.reconstruct_filtering(controll_expr, keyword_filter, as_obj=True)
+        # verify structure
+
+        match reconstructed:
+            case QsRoot(
+                parameter_limit=_,
+                children=[
+                    _,
+                    QsNode(
+                        auto_set_key=_,
+                        key="offset",
+                        value=5,
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # test keyword filter - order_by all formats should result in sign notation result
+        f_ = {
+            "name": {"eq": "John"},
+            "age": {"gt": 20},
+            "order_by": "asc(name)",
+        }
+        controll_expr, keyword_filter = builder.create_filter(
+            f_, ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+        )
+        # reconstruct filter
+        reconstructed = sqlf.reconstruct_filtering(controll_expr, keyword_filter, as_obj=True)
+        # verify structure
+
+        match reconstructed:
+            case QsRoot(
+                parameter_limit=_,
+                children=[
+                    _,
+                    QsNode(
+                        auto_set_key=_,
+                        key="order_by",
+                        value="+name",
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        f_ = {
+            "name": {"eq": "John"},
+            "age": {"gt": 20},
+            "order_by": "desc(name)",
+        }
+        controll_expr, keyword_filter = builder.create_filter(
+            f_, ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+        )
+        # reconstruct filter
+
+        reconstructed = sqlf.reconstruct_filtering(controll_expr, keyword_filter, as_obj=True)
+        # verify structure
+
+        match reconstructed:
+            case QsRoot(
+                parameter_limit=_,
+                children=[
+                    _,
+                    QsNode(
+                        auto_set_key=_,
+                        key="order_by",
+                        value="-name",
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # multiple order by
+        f_ = {
+            "name": {"eq": "John"},
+            "age": {"gt": 20},
+            "order_by": ["+name", "age.desc"],
+        }
+        controll_expr, keyword_filter = builder.create_filter(
+            f_, ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+        )
+        # reconstruct filter
+        reconstructed = sqlf.reconstruct_filtering(controll_expr, keyword_filter, as_obj=True)
+        # verify structure
+
+        match reconstructed:
+            case QsRoot(
+                parameter_limit=_,
+                children=[
+                    _,
+                    QsNode(
+                        auto_set_key=_,
+                        key="order_by",
+                        value=[
+                            QsNode(
+                                auto_set_key=_,
+                                key=0,
+                                value="+name",
+                            ),
+                            QsNode(
+                                auto_set_key=_,
+                                key=1,
+                                value="-age",
+                            ),
+                        ],
+                    ),
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # reconstruct into dict
+        reconstructed = sqlf.reconstruct_filtering(controll_expr, keyword_filter, as_obj=False)
+        # verify structure
+        self.assertDictEqual(
+            reconstructed,
+            {
+                "and": {
+                    "name": {"eq": "John"},
+                    "age": {"gt": 20},
+                },
+                "order_by": ["+name", "-age"],
+            },
         )
 
 
