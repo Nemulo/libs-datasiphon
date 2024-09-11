@@ -559,8 +559,11 @@ def reconstruct_filtering(
     """
     # 1. iterate over expression and dump it into a dictionary
     # 2. iterate over keywords and dump them into a dictionary
-    expression.normalize()
-    filter_dump = expression.dump()
+    if expression is not None:
+        expression.normalize()
+        filter_dump = expression.dump()
+    else:
+        filter_dump = {}
     keyword_dump = keywords.to_dict()
     filter_dump.update(keyword_dump)
     root = QsRoot()
