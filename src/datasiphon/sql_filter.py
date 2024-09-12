@@ -92,6 +92,9 @@ def get_restriction(
     return None
 
 
+# TODO: adjust navigation in FilterExpression
+# currently a bit whacky - adjust finding !! most important
+# adapt other functions to work with new navigation
 class FilterExpression:
     junction: Junction | None
     nested_expressions: list["FilterExpression"]
@@ -149,27 +152,17 @@ class FilterExpression:
         Raises:
             CannotAdjustExpression: If the path is invalid.
         """
-        if not path:
-            # add to root
-            if self.is_junction:
-                self.nested_expressions.append(expression)
-            # create junction - with provided `use_junction` arg (default AND)
-            else:
-                # create copy of self
-                new_instance = deepcopy(self)
-                self.junction = use_junction
-                self.nested_expressions = [new_instance, expression]
-                # clear column and operator
-                self.column = None
-                self.operator = None
-            return
-        elif not isinstance(path, list):
-            path = path.split(".")
-        # find target expression
         target_expr = self.find_expression(path)
         if target_expr is None:
             raise CannotAdjustExpression("Destination expression not found.")
-        target_expr.add_expression([], expression, use_junction)
+        if target_expr.is_junction and target_expr.junction == use_junction:
+            target_expr.nested_expressions.append(expression)
+        else:
+            target_copy = deepcopy(target_expr)
+            target_expr.junction = use_junction
+            target_expr.nested_expressions = [target_copy, expression]
+            target_expr.column = None
+            target_expr.operator = None
 
     def find_expression(self, path: list[str] | str) -> t.Union["FilterExpression", None]:
         """
@@ -192,64 +185,32 @@ class FilterExpression:
         Raises:
             CannotAdjustExpression: If the path is invalid.
         """
-
-        if not path:
-            return self
         if not isinstance(path, list):
             path = path.split(".")
-        if not all(item in core.QueryBuilder.JUNCTIONS for item in path[:-1]):
-            raise CannotAdjustExpression("Invalid path.")
-        if len(path) == 1:
-            # try to process the last item
-            if path[0] in core.QueryBuilder.JUNCTIONS:
-                return next(
-                    (expr for expr in self.nested_expressions if expr.junction == Junction.from_str(path[0])), None
-                )
-            else:
-                column_definition = path[0].split(":")
-                if len(column_definition) == 1:
-                    return next(
-                        (
-                            expr
-                            for expr in self.nested_expressions
-                            if expr.column is not None and expr.column.key == column_definition[0]
-                        ),
-                        None,
-                    )
-                elif len(column_definition) == 2:
-                    # try to split value from operator
-                    operator_definition = column_definition[1].split("-")
-                    if len(operator_definition) == 1:
-                        return next(
-                            (
-                                expr
-                                for expr in self.nested_expressions
-                                if expr.column.key == column_definition[0]
-                                and expr.operator.filter_name == operator_definition[0]
-                            ),
-                            None,
-                        )
-                    return next(
-                        (
-                            expr
-                            for expr in self.nested_expressions
-                            if expr.column is not None
-                            and expr.column.key == column_definition[0]
-                            and expr.operator.filter_name == operator_definition[0]
-                            and expr.operator.assigned_value == operator_definition[1]
-                        ),
-                        None,
-                    )
+        if len(path) == 0:
+            return self
+        # take first element from path
+        if path[0] in SqlQueryBuilder.JUNCTIONS and self.junction == Junction.from_str(path[0]):
+            if len(path) == 1:
+                return self
+            for expr in self.nested_expressions:
+                found_expr = expr.find_expression(path[1:])
+                if found_expr is not None:
+                    return found_expr
+            return None
+        elif self.column is not None:
+            # try to split the last element
+            column_definition = path[0].split(":")
+            column_name, operator = column_definition[0], column_definition[1] if len(column_definition) > 1 else None
+            op_name, op_value = operator.split("-") if operator and "-" in operator else (operator, None)
+            column_match = self.column.key == column_name
+            operator_match = (self.operator.filter_name == op_name) if op_name is not None else True
+            value_match = (self.operator.assigned_value == op_value) if op_value is not None else True
+            if column_match and operator_match and value_match:
+                return self
+            return None
         else:
-            target_expr = self
-            for junction in path[:-1]:
-                target_expr = next(
-                    (expr for expr in target_expr.nested_expressions if expr.junction == Junction.from_str(junction)),
-                    None,
-                )
-                if target_expr is None:
-                    return None
-            return target_expr.find_expression(path[-1])
+            return None
 
     def replace_expression(self, path: list[str] | str, expression: "FilterExpression") -> None:
         """
