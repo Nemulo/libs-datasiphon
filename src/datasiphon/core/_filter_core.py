@@ -348,6 +348,11 @@ class QueryBuilder:
                     for child in node.value:
                         # either returns a list of columns or raises an exception - cannot be None
                         resolved_columns.extend(QueryBuilder.process_node(child))
+                # NOTE: also, it can be multi-use of same junction in array-like format
+                elif isinstance(node.key, int):
+                    # key is an index - verify children - they must be either operations or junctions
+                    for child in node.value:
+                        resolved_columns.extend(QueryBuilder.process_node(child))
                 else:
                     # key is a column name - verify children - they must be either operations or junctions
                     for child in node.value:

@@ -1442,14 +1442,6 @@ class SQLTest(unittest.TestCase):
         from src.datasiphon.core import _exc as core_exc
         from src.datasiphon import sql_filter as sqlf
 
-        # prepare builder
-        builder = ds.SqlQueryBuilder(
-            {
-                "tt": data.test_table,
-                "st": data.secondary_test,
-                "tts": data.table_with_time_stamp,
-            }
-        )
         query_cols = ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
 
         # prepare simple filter with one element, normalizable filter
@@ -1931,6 +1923,213 @@ class SQLTest(unittest.TestCase):
                 },
                 "order_by": ["+name", "-age"],
             },
+        )
+
+    def test_multiple_complex_clauses_reconstruction(self):
+        """
+        This test case targets whether mulitple where clauses are correctly reconstructed
+        e.g. `where (a = 1 and b = 2) or (c = 3 and d = 4)`
+        should be reconstructed into
+        {
+            "or": {
+                "and": {
+                    0: {"a": {"eq": 1},
+                        "b": {"eq": 2},
+                    },
+                    1: {"c": {"eq": 3},
+                        "d": {"eq": 4},
+                    },
+                }
+        }
+        """
+        import src.datasiphon as ds
+        from src.datasiphon.core import _exc as core_exc
+        from src.datasiphon import sql_filter as sqlf
+        from qstion._struct_core import QsRoot, QsNode
+
+        columns = ds.SqlQueryBuilder.extract_columns(data.basic_enum_select)
+
+        # prepare expression
+        controll_expr = sqlf.FilterExpression.joined_expressions(
+            sqlf.Junction.OR,
+            sqlf.FilterExpression.joined_expressions(
+                sqlf.Junction.AND,
+                sqlf.FilterExpression(
+                    column=columns["id"],
+                    operator=sqlf.SQLEq(
+                        value=1,
+                    ),
+                ),
+                sqlf.FilterExpression(
+                    column=columns["name"],
+                    operator=sqlf.SQLEq(
+                        value=2,
+                    ),
+                ),
+            ),
+            sqlf.FilterExpression.joined_expressions(
+                sqlf.Junction.AND,
+                sqlf.FilterExpression(
+                    column=columns["age"],
+                    operator=sqlf.SQLEq(
+                        value=3,
+                    ),
+                ),
+                sqlf.FilterExpression(
+                    column=columns["name"],
+                    operator=sqlf.SQLEq(
+                        value=4,
+                    ),
+                ),
+            ),
+        )
+
+        dump = sqlf.reconstruct_filtering(controll_expr, sqlf.SqlKeywordFilter(), as_obj=True)
+        # verify structure
+        match dump:
+            case QsRoot(
+                parameter_limit=_,
+                children=[
+                    QsNode(
+                        auto_set_key=_,
+                        key="or",
+                        value=[
+                            QsNode(
+                                auto_set_key=_,
+                                key="and",
+                                value=[
+                                    QsNode(
+                                        auto_set_key=_,
+                                        key=0,
+                                        value=[*_],
+                                    ),
+                                    QsNode(
+                                        auto_set_key=_,
+                                        key=1,
+                                        value=[*_],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    )
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        controll_expr = sqlf.FilterExpression.joined_expressions(
+            sqlf.Junction.OR,
+            sqlf.FilterExpression(
+                column=columns["id"],
+                operator=sqlf.SQLGt(
+                    value=1,
+                ),
+            ),
+            sqlf.FilterExpression.joined_expressions(
+                sqlf.Junction.AND,
+                sqlf.FilterExpression(
+                    column=columns["age"],
+                    operator=sqlf.SQLGt(
+                        value=3,
+                    ),
+                ),
+                sqlf.FilterExpression(
+                    column=columns["name"],
+                    operator=sqlf.SQLEq(
+                        value=4,
+                    ),
+                ),
+            ),
+            sqlf.FilterExpression.joined_expressions(
+                sqlf.Junction.AND,
+                sqlf.FilterExpression(
+                    column=columns["age"],
+                    operator=sqlf.SQLEq(
+                        value=3,
+                    ),
+                ),
+                sqlf.FilterExpression(
+                    column=columns["name"],
+                    operator=sqlf.SQLEq(
+                        value=4,
+                    ),
+                ),
+                sqlf.FilterExpression(
+                    column=columns["id"],
+                    operator=sqlf.SQLGt(
+                        value=1,
+                    ),
+                ),
+            ),
+        )
+
+        dump = sqlf.reconstruct_filtering(controll_expr, sqlf.SqlKeywordFilter(), as_obj=True)
+        # verify structure
+
+        match dump:
+            case QsRoot(
+                parameter_limit=_,
+                children=[
+                    QsNode(
+                        auto_set_key=_,
+                        key="or",
+                        value=[
+                            QsNode(
+                                auto_set_key=_,
+                                key=_,
+                                value=_,
+                            ),
+                            QsNode(
+                                auto_set_key=_,
+                                key="and",
+                                value=[
+                                    QsNode(
+                                        auto_set_key=_,
+                                        key=0,
+                                        value=[_, _],
+                                    ),
+                                    QsNode(
+                                        auto_set_key=_,
+                                        key=1,
+                                        value=[_, _, _],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    )
+                ],
+            ):
+                pass
+            case _:
+                self.fail("Incorrect structure")
+
+        # try to use this filter in query
+        builder = ds.SqlQueryBuilder(
+            {
+                "tt": data.test_table,
+            }
+        )
+        query = builder.build(data.basic_enum_select, dump)
+
+        self.assertEqual(
+            str(query.compile(compile_kwargs={"literal_binds": True})),
+            str(
+                data.basic_enum_select.where(
+                    sa.or_(
+                        data.test_table.c.id > 1,
+                        sa.and_(
+                            data.test_table.c.age > 3,
+                            data.test_table.c.name == 4,
+                        ),
+                        sa.and_(
+                            data.test_table.c.age == 3,
+                            data.test_table.c.name == 4,
+                            data.test_table.c.id > 1,
+                        ),
+                    )
+                ).compile(compile_kwargs={"literal_binds": True})
+            ),
         )
 
 

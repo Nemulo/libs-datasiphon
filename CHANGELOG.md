@@ -5,6 +5,11 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+### [0.3.5] - 2024-09-23
+
+- adjusted dumping expression to avoid merging junctions which would result in incorrect query - now dumped into array like dict
+
+
 ### [0.3.0] - 2024-09-10
 
 - Refactored project - core structure moved to `core` module, sql backend moved to is now in `sql_filter` module

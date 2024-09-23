@@ -285,11 +285,38 @@ class FilterExpression:
             # e.g recursively dump nested expressions and their name should be unique
             data = {}
             for expr in self.nested_expressions:
-                data.update(expr.dump())
+                # junctions have to be array like - so we have to wrap them into a list
+                dump_result = expr.dump()  # should be dictionary with exactly one key
+                for key, value in dump_result.items():
+                    if key not in data:
+                        data[key] = value
+                    else:
+                        data[key] = FilterExpression.merge_dumps(data[key], value)
             return {self.junction.name.lower(): data}
         else:
             # simple expression
             return {self.column.key: self.operator.dump()}
+
+    @staticmethod
+    def merge_dumps(current: dict, incoming: dict) -> dict:
+        """
+        Merges two dumps into one.
+        """
+        if not FilterExpression.is_array_like_dict(current):
+            current = FilterExpression.to_array_like_dict(current)
+        next_index = max(current.keys()) + 1
+        current[next_index] = incoming
+        return current
+
+    @staticmethod
+    def is_array_like_dict(item: dict):
+        indexes = all(isinstance(key, int) for key in item.keys())
+        nested_items = all(isinstance(value, dict) for value in item.values())
+        return indexes and nested_items
+
+    @staticmethod
+    def to_array_like_dict(item: dict):
+        return {0: item}
 
 
 class SqlKeywordFilter:
@@ -398,7 +425,7 @@ class SqlQueryBuilder(core.QueryBuilder):
         keyword_filter: SqlKeywordFilter,
         parent_column: str | None = None,
         restrictions: list[core.ColumnFilterRestriction] = None,
-    ) -> FilterExpression:
+    ) -> FilterExpression | list[FilterExpression]:
         """
         Creates a filter expression object based on a QsNode which is assumed to be already validated.
         """
@@ -407,15 +434,33 @@ class SqlQueryBuilder(core.QueryBuilder):
             keyword_filter.add_keyword(keyword, value)
             return None
         if node.key in self.JUNCTIONS:
-            return FilterExpression.joined_expressions(
-                Junction.from_str(node.key),
-                *[
-                    self.create_filter_expression(
-                        child, columns, keyword_filter, parent_column, restrictions=restrictions
+            # NOTE: if value of this node is array like dict - it indicates that there are multiple junctions
+            # with same name (which cannot be represented in dict format in other way than array-like dict)
+            if node.is_array_branch:
+                return [
+                    FilterExpression.joined_expressions(
+                        Junction.from_str(node.key),
+                        self.create_filter_expression(
+                            child, columns, keyword_filter, parent_column, restrictions=restrictions
+                        ),
                     )
                     for child in node.value
-                ],
+                ]
+            nested_expressions = []
+            for child in node.value:
+                expr = self.create_filter_expression(
+                    child, columns, keyword_filter, parent_column, restrictions=restrictions
+                )
+                if isinstance(expr, list):
+                    nested_expressions.extend(expr)
+                else:
+                    nested_expressions.append(expr)
+
+            return FilterExpression.joined_expressions(
+                Junction.from_str(node.key),
+                *nested_expressions,
             )
+        # check for multi-junction in array-like dict format
         else:
             # if node is a leaf node, key is operator and thus expression will inherit from parent column
             # otherwise key is column name and passed as parent column
@@ -435,14 +480,13 @@ class SqlQueryBuilder(core.QueryBuilder):
                 return FilterExpression(column_ref, operator)
             else:
                 # node is a nested node - column argument
+                nested_expressions = [
+                    self.create_filter_expression(child, columns, keyword_filter, node.key, restrictions=restrictions)
+                    for child in node.value
+                ]
                 return FilterExpression.joined_expressions(
                     Junction.AND,
-                    *[
-                        self.create_filter_expression(
-                            child, columns, keyword_filter, node.key, restrictions=restrictions
-                        )
-                        for child in node.value
-                    ],
+                    *nested_expressions,
                 )
 
     def process_keyword_node(self, keyword_node: QsNode, query_columns: ColumnCollection) -> tuple[str, t.Any]:
