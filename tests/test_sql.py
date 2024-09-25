@@ -1446,7 +1446,9 @@ class SQLTest(unittest.TestCase):
 
         # prepare simple filter with one element, normalizable filter
         # 1. case: Junction with one element - should return the element
-
+        # NOTE change: - even if the junction contains only one element,
+        # sqlalchemy will process it correctly (without junction) -> so we will keep this one element in there
+        # because: This one element may be column name and its value can be multiple operators on which junction should be applied
         controll = sqlf.FilterExpression.joined_expressions(
             sqlf.Junction.AND,
             sqlf.FilterExpression(
@@ -1469,13 +1471,20 @@ class SQLTest(unittest.TestCase):
         controll_copy.normalize()
         match controll_copy:
             case sqlf.FilterExpression(
-                junction=None,
+                junction=sqlf.Junction.AND,
                 column=_,
-                operator=sqlf.SQLEq(
-                    filter_name="eq",
-                    assigned_value="John",
-                ),
-                nested_expressions=[],
+                operator=_,
+                nested_expressions=[
+                    sqlf.FilterExpression(
+                        junction=None,
+                        column=_,
+                        operator=sqlf.SQLEq(
+                            filter_name="eq",
+                            assigned_value="John",
+                        ),
+                        nested_expressions=[],
+                    ),
+                ],
             ):
                 pass
             case _:
@@ -1517,13 +1526,27 @@ class SQLTest(unittest.TestCase):
 
         match controll_copy:
             case sqlf.FilterExpression(
-                junction=None,
-                column=_,
-                operator=sqlf.SQLEq(
-                    filter_name="eq",
-                    assigned_value="John",
-                ),
-                nested_expressions=[],
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    sqlf.FilterExpression(
+                        junction=sqlf.Junction.OR,
+                        column=None,
+                        operator=None,
+                        nested_expressions=[
+                            sqlf.FilterExpression(
+                                junction=None,
+                                column=_,
+                                operator=sqlf.SQLEq(
+                                    filter_name="eq",
+                                    assigned_value="John",
+                                ),
+                                nested_expressions=[],
+                            ),
+                        ],
+                    ),
+                ],
             ):
                 pass
             case _:
@@ -1565,13 +1588,20 @@ class SQLTest(unittest.TestCase):
 
         match controll_copy:
             case sqlf.FilterExpression(
-                junction=None,
-                column=_,
-                operator=sqlf.SQLEq(
-                    filter_name="eq",
-                    assigned_value="John",
-                ),
-                nested_expressions=[],
+                junction=sqlf.Junction.AND,
+                column=None,
+                operator=None,
+                nested_expressions=[
+                    sqlf.FilterExpression(
+                        junction=None,
+                        column=_,
+                        operator=sqlf.SQLEq(
+                            filter_name="eq",
+                            assigned_value="John",
+                        ),
+                        nested_expressions=[],
+                    ),
+                ],
             ):
                 pass
             case _:
@@ -2126,6 +2156,45 @@ class SQLTest(unittest.TestCase):
                             data.test_table.c.age == 3,
                             data.test_table.c.name == 4,
                             data.test_table.c.id > 1,
+                        ),
+                    )
+                ).compile(compile_kwargs={"literal_binds": True})
+            ),
+        )
+
+    def test_junction_above_column_with_multiple_ops(self):
+        import src.datasiphon as ds
+
+        # prepare builder
+        builder = ds.SqlQueryBuilder(
+            {
+                "tt": data.test_table,
+            }
+        )
+        filtering = {
+            "or": {
+                "or": {
+                    "name": {"eq": "John", "lt": "Doe"},
+                },
+                "and": {
+                    "age": {"gt": 20, "lt": 30},
+                },
+            }
+        }
+        built_query = builder.build(data.basic_enum_select, filtering)
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(
+                data.basic_enum_select.where(
+                    sa.or_(
+                        sa.or_(
+                            data.test_table.c.name == "John",
+                            data.test_table.c.name < "Doe",
+                        ),
+                        sa.and_(
+                            data.test_table.c.age > 20,
+                            data.test_table.c.age < 30,
                         ),
                     )
                 ).compile(compile_kwargs={"literal_binds": True})

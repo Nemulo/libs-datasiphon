@@ -124,11 +124,13 @@ class FilterExpression:
         return self.junction is not None
 
     def apply(self, query: Select) -> Select:
-        return query.where(self.produce_whereclause())
+        whereclause = self.produce_whereclause()
+        return query.where(whereclause)
 
     def produce_whereclause(self) -> ColumnElement:
         if self.is_junction:
-            return self.junction.value(*[expr.produce_whereclause() for expr in self.nested_expressions])
+            nested_whereclauses = [expr.produce_whereclause() for expr in self.nested_expressions]
+            return self.junction.value(*nested_whereclauses)
         return self.operator.evaluate(self.column)
 
     def add_expression(
@@ -271,9 +273,6 @@ class FilterExpression:
         self.nested_expressions = [
             expr for expr in self.nested_expressions if not expr.is_junction or expr.nested_expressions
         ]
-        # 2. replace junctions with only one nested expression with the nested expression
-        if self.is_junction and len(self.nested_expressions) == 1:
-            self.replace(self.nested_expressions[0])
         # done
 
     def dump(self):
@@ -290,6 +289,8 @@ class FilterExpression:
                 for key, value in dump_result.items():
                     if key not in data:
                         data[key] = value
+                    elif key in data and key not in SqlQueryBuilder.JUNCTIONS:
+                        data[key].update(value)
                     else:
                         data[key] = FilterExpression.merge_dumps(data[key], value)
             return {self.junction.name.lower(): data}
@@ -425,6 +426,7 @@ class SqlQueryBuilder(core.QueryBuilder):
         keyword_filter: SqlKeywordFilter,
         parent_column: str | None = None,
         restrictions: list[core.ColumnFilterRestriction] = None,
+        parent_junction: Junction = Junction.AND,
     ) -> FilterExpression | list[FilterExpression]:
         """
         Creates a filter expression object based on a QsNode which is assumed to be already validated.
@@ -449,7 +451,12 @@ class SqlQueryBuilder(core.QueryBuilder):
             nested_expressions = []
             for child in node.value:
                 expr = self.create_filter_expression(
-                    child, columns, keyword_filter, parent_column, restrictions=restrictions
+                    child,
+                    columns,
+                    keyword_filter,
+                    parent_column,
+                    restrictions=restrictions,
+                    parent_junction=Junction.from_str(node.key),
                 )
                 if isinstance(expr, list):
                     nested_expressions.extend(expr)
@@ -485,7 +492,7 @@ class SqlQueryBuilder(core.QueryBuilder):
                     for child in node.value
                 ]
                 return FilterExpression.joined_expressions(
-                    Junction.AND,
+                    parent_junction,
                     *nested_expressions,
                 )
 
