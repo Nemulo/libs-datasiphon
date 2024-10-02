@@ -1,7 +1,17 @@
-from sqlalchemy import Table, Select, and_ as sa_and, or_ as sa_or, asc as sa_asc, desc as sa_desc
-from sqlalchemy.sql.elements import ColumnElement, UnaryExpression
+from sqlalchemy import (
+    Table,
+    Select,
+    and_ as sa_and,
+    or_ as sa_or,
+    asc as sa_asc,
+    desc as sa_desc,
+    func as sa_func,
+)
+import sqlalchemy as sa
+from sqlalchemy.sql.elements import ColumnElement, UnaryExpression, _label_reference, Label
 import sqlalchemy.sql.operators as sql_operators
 from sqlalchemy.sql.base import ColumnCollection
+from sqlalchemy.sql.sqltypes import TypeEngine
 from qstion._struct_core import QsRoot, QsNode
 import enum
 import typing as t
@@ -13,7 +23,33 @@ from .core._exc import ColumnError, CannotAdjustExpression, FiltrationNotAllowed
 import functools
 
 
+def is_nullable(column: ColumnElement | _label_reference | Label) -> bool:
+    """
+    Method that checks if the column (or label reference to it) is nullable.
+    :param column: ColumnElement or Label reference to it.
+    :return: True if the column is nullable, False otherwise.
+    """
+    if isinstance(column, (_label_reference, Label)):
+        return column.element.nullable
+    return column.nullable
+
+
+def is_bool_type(column: ColumnElement) -> bool:
+    """
+    Method that checks if the column is of boolean type.
+    :param column: ColumnElement to check.
+    :return: True if the column is of boolean type, False otherwise.
+    """
+    if isinstance(column, (_label_reference, Label)):
+        column = column.element
+    return isinstance(column.type, (sa.Boolean, sa.BOOLEAN))
+
+
 class Junction(enum.Enum):
+    """
+    Enum that represents a junction in SQL.
+    """
+
     AND = functools.partial(sa_and)
     OR = functools.partial(sa_or)
 
@@ -25,12 +61,18 @@ class Junction(enum.Enum):
 class SQLEq(core.Equals):
 
     def evaluate(self, column: ColumnElement) -> ColumnElement:
+        # if null handling is set, evaluate normally
+        # otherwise implicitely coalesce null values as infinity and use that for comparison
+        if (is_nullable(column) and self.assigned_value is None) or is_bool_type(column):
+            return column.is_(self.assigned_value)
         return column == self.assigned_value
 
 
 class SQLNe(core.NotEquals):
 
     def evaluate(self, column: ColumnElement) -> ColumnElement:
+        if (is_nullable(column) and self.assigned_value is None) or is_bool_type(column):
+            return column.isnot(self.assigned_value)
         return column != self.assigned_value
 
 
@@ -71,6 +113,11 @@ class SQLNotIn(core.NotIn):
 
 
 def get_sql_operator(operator: str) -> t.Type[core.FilterOperation]:
+    """
+    Shortcut method that returns a SQL operator based on the string representation.
+    :param operator: String representation of the operator.
+    :return: SQL operator.
+    """
     return {
         "eq": SQLEq,
         "ne": SQLNe,
@@ -86,16 +133,23 @@ def get_sql_operator(operator: str) -> t.Type[core.FilterOperation]:
 def get_restriction(
     column_name: str, restrictions: list[core.ColumnFilterRestriction]
 ) -> core.ColumnFilterRestriction | None:
+    """
+    Method that returns a restriction based on the column name.
+    :param column_name: Name of the column.
+    :param restrictions: List of restrictions.
+    :return: Restriction if found, None otherwise.
+    """
     for restriction in restrictions:
         if restriction.name == column_name:
             return restriction
     return None
 
 
-# TODO: adjust navigation in FilterExpression
-# currently a bit whacky - adjust finding !! most important
-# adapt other functions to work with new navigation
 class FilterExpression:
+    """
+    Class that represents a filter expression in SQL - Tree structure.
+    """
+
     junction: Junction | None
     nested_expressions: list["FilterExpression"]
     column: ColumnElement
@@ -109,6 +163,14 @@ class FilterExpression:
 
     @classmethod
     def joined_expressions(cls, junction: Junction, *expressions: "FilterExpression") -> "FilterExpression":
+        """
+        Generates a joined expression with specified junction.
+        :param junction: Junction to use.
+        :param expressions: Expressions to join.
+        Example:
+        X or Y or Z -> junction=OR, expressions=[X, Y, Z]
+        :return: Joined expression into a single expression.
+        """
         if len(expressions) == 0:
             return None
         elif len(expressions) == 1:
@@ -124,10 +186,16 @@ class FilterExpression:
         return self.junction is not None
 
     def apply(self, query: Select) -> Select:
+        """
+        Applies the filter expression to the query.
+        """
         whereclause = self.produce_whereclause()
         return query.where(whereclause)
 
     def produce_whereclause(self) -> ColumnElement:
+        """
+        Creates a where clause based on the expression.
+        """
         if self.is_junction:
             nested_whereclauses = [expr.produce_whereclause() for expr in self.nested_expressions]
             return self.junction.value(*nested_whereclauses)
@@ -320,6 +388,42 @@ class FilterExpression:
         return {0: item}
 
 
+class NullsLastPosition(enum.Enum):
+    """
+    Enum that represents explicit position of nulls in SQL.
+    """
+
+    ALWAYS = "always"
+    NEVER = "never"
+    ASC = "asc"
+    DESC = "desc"
+
+    @classmethod
+    def from_str(cls, value: str) -> "NullsLastPosition":
+        return cls[value.upper()]
+
+    def apply(self, column: UnaryExpression) -> UnaryExpression:
+        """
+        Applies the nulls position to the column.
+        """
+        # verify that column used in unary expression is nullable
+        if not is_nullable(column.element):
+            return column
+        if self == NullsLastPosition.ASC:
+            # nulls will be last for ascending order and first for descending order
+            if column.modifier == sql_operators.asc_op:
+                return column.nullslast()
+            return column.nullsfirst()
+        elif self == NullsLastPosition.DESC:
+            # nulls will be last for descending order and first for ascending order
+            if column.modifier == sql_operators.desc_op:
+                return column.nullslast()
+            return column.nullsfirst()
+        elif self == NullsLastPosition.ALWAYS:
+            return column.nullslast()
+        return column.nullsfirst()
+
+
 class SqlKeywordFilter:
     """
     A class that represents a keyword filtering in SQL.
@@ -353,13 +457,16 @@ class SqlKeywordFilter:
     def add_order_by(self, *columns: ColumnElement) -> None:
         self.order_by.extend(columns)
 
-    def apply(self, query: Select) -> Select:
+    def apply(self, query: Select, nulls: t.Optional[NullsLastPosition]) -> Select:
         if self.limit is not None:
             query = query.limit(self.limit)
         if self.offset is not None:
             query = query.offset(self.offset)
         if self.order_by is not None:
-            query = query.order_by(*self.order_by)
+            if nulls is None:
+                query = query.order_by(*self.order_by)
+            else:
+                query = query.order_by(*[nulls.apply(column) for column in self.order_by])
         return query
 
     def to_dict(self) -> dict[str, t.Any]:
@@ -397,6 +504,13 @@ class SqlQueryBuilder(core.QueryBuilder):
     def create_filter(
         self, filtering: QsRoot | dict, query_columns: ColumnCollection, *restrictions: core.ColumnFilterRestriction
     ) -> tuple[FilterExpression, SqlKeywordFilter]:
+        """
+        Generates a filter expression and keyword filter based on the filtering object and provided query columns.
+        :param filtering: Filtering object or dictionary.
+        :param query_columns: Query columns.
+        :param restrictions: Restrictions to use when filtering.
+        :return: Tuple containing filter expression and keyword filter.
+        """
         if not isinstance(filtering, (QsRoot, dict)):
             raise ValueError(f"Unsupported input filtering type: {type(filtering)}")
         if isinstance(filtering, dict):
@@ -412,11 +526,31 @@ class SqlQueryBuilder(core.QueryBuilder):
                 filter_expressions.append(filter_expression)
         return FilterExpression.joined_expressions(Junction.AND, *filter_expressions), keyword_filter
 
-    def build(self, query: Select, filtering: QsRoot | dict, *restrictions: core.ColumnFilterRestriction) -> Select:
+    def build(
+        self,
+        query: Select,
+        filtering: QsRoot | dict,
+        *restrictions: core.ColumnFilterRestriction,
+        nulls_last: t.Optional[str] = None,
+    ) -> Select:
+        """
+        Builds a SQL query based on the filtering object.
+        :param query: SQL query to filter.
+        :param filtering: Filtering object or dictionary.
+        :param restrictions: Restrictions to use when filtering.
+        :param nulls_last: where to explicitely put nulls results in ordering.
+            - can be one of following:
+                - "always" - nulls will be ordered last regardless of order direction
+                - "never" - nulls will be ordered first regardless of order direction
+                - "asc" - nulls will be ordered last for ascending order and first for descending order
+                - "desc" - nulls will be ordered last for descending order and first for ascending order
+        :return: Filtered SQL query.
+        """
+        nulls = NullsLastPosition.from_str(nulls_last) if nulls_last is not None else None
         columns = self.extract_columns(query)
         filter_expression, keyword_filter = self.create_filter(filtering, columns, *restrictions)
         query = filter_expression.apply(query) if filter_expression else query
-        query = keyword_filter.apply(query)
+        query = keyword_filter.apply(query, nulls=nulls)
         return query
 
     def create_filter_expression(
@@ -430,6 +564,13 @@ class SqlQueryBuilder(core.QueryBuilder):
     ) -> FilterExpression | list[FilterExpression]:
         """
         Creates a filter expression object based on a QsNode which is assumed to be already validated.
+        :param node: QsNode to create the expression from.
+        :param columns: Query columns.
+        :param keyword_filter: Keyword filter to use.
+        :param parent_column: Parent column name.
+        :param restrictions: Restrictions to use when filtering.
+        :param parent_junction: Parent junction - used for recursive calls.
+        :return: Filter expression object.
         """
         if node.key in self.KEYWORDS:
             keyword, value = self.process_keyword_node(node, columns)
@@ -497,6 +638,12 @@ class SqlQueryBuilder(core.QueryBuilder):
                 )
 
     def process_keyword_node(self, keyword_node: QsNode, query_columns: ColumnCollection) -> tuple[str, t.Any]:
+        """
+        Processes a keyword node and returns a tuple containing keyword and its value.
+        :param keyword_node: Keyword node to process.
+        :param query_columns: Query columns.
+        :return: Tuple containing keyword and its value.
+        """
         if keyword_node.key == "limit":
             # node should be always a leaf node
             # value should be an integer-like value
@@ -533,12 +680,25 @@ class SqlQueryBuilder(core.QueryBuilder):
                 raise InvalidValueTypeError("Order by keyword should be either a leaf node or a simple array node.")
 
     def resolve_order_by(self, direction: int, column_ref: str, query_columns: ColumnCollection) -> list[ColumnElement]:
+        """
+        Processes an order by column reference and returns a list of column elements.
+        :param direction: Direction of the order by.
+        :param column_ref: name of referenced column.
+        :param query_columns: Query columns.
+        :return: List of column elements.
+        """
         referenced_column = self.resolve_column(column_ref, query_columns)
         if direction:
             return [sa_asc(referenced_column)]
         return [sa_desc(referenced_column)]
 
     def resolve_column(self, column_ref: str, query_columns: ColumnCollection) -> ColumnElement:
+        """
+        Resolves a column reference from string to a column element.
+        :param column_ref: Column reference (string name of column or table.column).
+        :param query_columns: Query columns.
+        :return: Resolved column element
+        """
         if "." in column_ref:
             table_name, column_name = column_ref.split(".")
             referenced_column = self.get_base_column(table_name, column_name)
@@ -568,6 +728,10 @@ def reconstruct_filtering(
 ) -> dict | QsRoot:
     """
     Reconstructs filtering object from a dictionary.
+    :param expression: Filter expression.
+    :param keywords: Keyword filter.
+    :param as_obj: Whether to return the filtering object as an object.
+    :return: Reconstructed filtering object.
     """
     # 1. iterate over expression and dump it into a dictionary
     # 2. iterate over keywords and dump them into a dictionary

@@ -464,7 +464,7 @@ class SQLTest(unittest.TestCase):
                                 data.test_table.c.created_at > "2020-01-01",
                             ),
                         ),
-                        data.test_table.c.is_active == True,
+                        data.test_table.c.is_active.is_(True),
                     )
                 )
             ),
@@ -555,7 +555,7 @@ class SQLTest(unittest.TestCase):
                         sa.and_(
                             data.test_table.c.age > 20,
                             sa.or_(
-                                data.test_table.c.is_active == True,
+                                data.test_table.c.is_active.is_(True),
                                 data.test_table.c.created_at > "2020-01-01",
                             ),
                         ),
@@ -2199,6 +2199,180 @@ class SQLTest(unittest.TestCase):
                     )
                 ).compile(compile_kwargs={"literal_binds": True})
             ),
+        )
+
+    def test_table_with_nullable_columns_(self):
+        import src.datasiphon as ds
+        from src.datasiphon.core import _exc as core_exc
+        from sqlalchemy.exc import ArgumentError
+
+        used_table = data.nullables_generic_types_table
+        builder = ds.SqlQueryBuilder(
+            {
+                "ngt": used_table,
+                "tt": data.test_table,
+            }
+        )
+        # test every column with different operators
+        controll_query = sa.select(used_table.c.bool_type).select_from(used_table)
+        # prepare filter - only applicable should be eq and ne which in case of bool type col
+        # should translate into `is` or `isnot`
+        filtering = {
+            "bool_type": {"eq": True},
+        }
+        built_query = builder.build(controll_query, filtering)
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(controll_query.where(used_table.c.bool_type.is_(True)).compile(compile_kwargs={"literal_binds": True})),
+        )
+        filtering = {
+            "bool_type": {"ne": True},
+        }
+        built_query = builder.build(controll_query, filtering)
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(
+                controll_query.where(used_table.c.bool_type.isnot(True)).compile(compile_kwargs={"literal_binds": True})
+            ),
+        )
+        # try with null value
+        filtering = {
+            "bool_type": {"eq": None},
+        }
+        built_query = builder.build(controll_query, filtering)
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(controll_query.where(used_table.c.bool_type.is_(None)).compile(compile_kwargs={"literal_binds": True})),
+        )
+        # use nulls_last option for building -> need to order
+        filtering = {
+            "order_by": "+bool_type",
+        }
+        # use nulls last when asc
+        built_query = builder.build(controll_query, filtering, nulls_last="asc")
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(
+                controll_query.order_by(sa.asc(used_table.c.bool_type).nulls_last()).compile(
+                    compile_kwargs={"literal_binds": True}
+                )
+            ),
+        )
+        # try with desc order - should be nulls first
+        filtering = {
+            "order_by": "-bool_type",
+        }
+        built_query = builder.build(controll_query, filtering, nulls_last="asc")
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(
+                controll_query.order_by(sa.desc(used_table.c.bool_type).nulls_first()).compile(
+                    compile_kwargs={"literal_binds": True}
+                )
+            ),
+        )
+        # try nulls first option
+        filtering = {
+            "order_by": "+bool_type",
+        }
+        # use nulls first when asc
+        built_query = builder.build(controll_query, filtering, nulls_last="desc")
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(
+                controll_query.order_by(sa.asc(used_table.c.bool_type).nulls_first()).compile(
+                    compile_kwargs={"literal_binds": True}
+                )
+            ),
+        )
+        # try with desc order - should be nulls last
+        filtering = {
+            "order_by": "-bool_type",
+        }
+        built_query = builder.build(controll_query, filtering, nulls_last="desc")
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(
+                controll_query.order_by(sa.desc(used_table.c.bool_type).nulls_last()).compile(
+                    compile_kwargs={"literal_binds": True}
+                )
+            ),
+        )
+        # use nulls last always
+        filtering = {
+            "order_by": "+bool_type",
+        }
+        # use nulls first when asc
+        built_query = builder.build(controll_query, filtering, nulls_last="always")
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(
+                controll_query.order_by(sa.asc(used_table.c.bool_type).nulls_last()).compile(
+                    compile_kwargs={"literal_binds": True}
+                )
+            ),
+        )
+        # try with desc order - should be nulls last
+        filtering = {
+            "order_by": "-bool_type",
+        }
+        built_query = builder.build(controll_query, filtering, nulls_last="always")
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(
+                controll_query.order_by(sa.desc(used_table.c.bool_type).nulls_last()).compile(
+                    compile_kwargs={"literal_binds": True}
+                )
+            ),
+        )
+        # try with nulls first never
+        filtering = {
+            "order_by": "+bool_type",
+        }
+        # use nulls first when asc
+        built_query = builder.build(controll_query, filtering, nulls_last="never")
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(
+                controll_query.order_by(sa.asc(used_table.c.bool_type).nulls_first()).compile(
+                    compile_kwargs={"literal_binds": True}
+                )
+            ),
+        )
+        # try with desc order - should be nulls first
+        filtering = {
+            "order_by": "-bool_type",
+        }
+        built_query = builder.build(controll_query, filtering, nulls_last="never")
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(
+                controll_query.order_by(sa.desc(used_table.c.bool_type).nulls_first()).compile(
+                    compile_kwargs={"literal_binds": True}
+                )
+            ),
+        )
+        # try to use nulls_last option on non-nullable column - should not apply
+        filtering = {
+            "order_by": "+id",
+        }
+        # use nulls first when asc
+        built_query = builder.build(used_table.select(), filtering, nulls_last="always")
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(used_table.select().order_by(sa.asc(used_table.c.id)).compile(compile_kwargs={"literal_binds": True})),
         )
 
 

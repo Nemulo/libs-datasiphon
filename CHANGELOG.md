@@ -4,6 +4,10 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+### [0.3.7] - 2024-10-02
+
+- added support for advanced ordering null values in `SQL` backend using nulls last and nulls first methods
+- adjusted operators `eq` and `ne` - correct handling of bool type columns and `None` values
 
 ### [0.3.5] - 2024-09-23
 
