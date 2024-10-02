@@ -10,6 +10,7 @@ from sqlalchemy import (
 import sqlalchemy as sa
 from sqlalchemy.sql.elements import ColumnElement, UnaryExpression, _label_reference, Label
 import sqlalchemy.sql.operators as sql_operators
+from sqlalchemy.sql.functions import ReturnTypeFromArgs
 from sqlalchemy.sql.base import ColumnCollection
 from sqlalchemy.sql.sqltypes import TypeEngine
 from qstion._struct_core import QsRoot, QsNode
@@ -23,15 +24,41 @@ from .core._exc import ColumnError, CannotAdjustExpression, FiltrationNotAllowed
 import functools
 
 
-def is_nullable(column: ColumnElement | _label_reference | Label) -> bool:
+def is_nullable(column: t.Any) -> bool:
     """
     Method that checks if the column (or label reference to it) is nullable.
     :param column: ColumnElement or Label reference to it.
     :return: True if the column is nullable, False otherwise.
     """
+    # TODO might need more processors for different types
     if isinstance(column, (_label_reference, Label)):
-        return column.element.nullable
-    return column.nullable
+        return process_label_nullable(column)
+    elif isinstance(column, ReturnTypeFromArgs):
+        return process_function_nullable(column)
+    else:
+        return column.nullable
+
+
+def process_label_nullable(column: Label | _label_reference) -> ColumnElement:
+    """
+    Method that processes the label reference and returns the column element.
+    :param column: Label reference to process.
+    :return: ColumnElement.
+    """
+    if isinstance(column.element, ReturnTypeFromArgs):
+        return process_function_nullable(column.element)
+    return column.element.nullable
+
+
+def process_function_nullable(column: ReturnTypeFromArgs) -> ColumnElement:
+    """
+    Method that processes the function and returns the column element.
+    :param column: Function to process.
+    :return: ColumnElement.
+    """
+    # TODO implement better than this
+    # for now assume that every function is not nullable
+    return False
 
 
 def is_bool_type(column: ColumnElement) -> bool:
