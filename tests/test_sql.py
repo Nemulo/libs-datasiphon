@@ -2375,6 +2375,44 @@ class SQLTest(unittest.TestCase):
             str(used_table.select().order_by(sa.asc(used_table.c.id)).compile(compile_kwargs={"literal_binds": True})),
         )
 
+    def test_sqlalchemy_functions_as_select_cols(self):
+        import src.datasiphon as ds
+
+        # prepare builder
+        builder = ds.SqlQueryBuilder(
+            {
+                "tt": data.test_table,
+            }
+        )
+        # prepare expression
+        controll_query = sa.select(sa.func.count(data.test_table.c.id).label('player_count')).select_from(data.test_table)
+        # prepare filter
+        filtering = {
+            "player_count": {"gt": 10},
+        }
+        built_query = builder.build(controll_query, filtering)
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(controll_query.where(sa.func.count(data.test_table.c.id) > 10).compile(compile_kwargs={"literal_binds": True})),
+        )
+
+        controll_query = sa.select(sa.func.coalesce(
+            data.secondary_test.c.value, 0).label('value')).select_from(data.secondary_test)
+        # prepare filter
+        filtering = {
+            "value": {"gt": 10},
+        }
+        built_query = builder.build(controll_query, filtering)
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(
+                controll_query.where(sa.func.coalesce(data.secondary_test.c.value, 0) > 10).compile(
+                    compile_kwargs={"literal_binds": True}
+                )
+            ),
+        )
 
 if __name__ == "__main__":
     unittest.main()
