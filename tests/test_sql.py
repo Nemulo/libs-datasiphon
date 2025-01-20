@@ -2414,5 +2414,52 @@ class SQLTest(unittest.TestCase):
             ),
         )
 
+    def test_multiple_nested_junctions(self):
+        """
+        This test case targets situation Where multiple junctions are used on same level with same name 
+        E.g. :
+        (a = 1) OR (a > 1 and b=1) OR (a>1 and b>1 and c=1)
+        would result in array-like `and` junction which should be correctly
+        represented into expression
+        """
+        import src.datasiphon as ds
+
+        # prepare builder
+        builder = ds.SqlQueryBuilder(
+            {
+                "tt": data.test_table,
+            }
+        )
+        # prepare filter
+        filtering = {
+            "or": {
+                "id": {"eq": 1},
+                "and": {
+                    0: {"age": {"gt": 1}, "name": {"eq": 1}},
+                    1: {"age": {"gt": 1}, "name": {"gt": 1}, "id": {"eq": 1}},
+                }
+            }
+        }
+        built_query = builder.build(data.basic_enum_select, filtering)
+        # verify structure
+        self.assertEqual(
+            str(built_query.compile(compile_kwargs={"literal_binds": True})),
+            str(
+                data.basic_enum_select.where(
+                    sa.or_(
+                        data.test_table.c.id == 1,
+                        sa.and_(
+                            data.test_table.c.age > 1,
+                            data.test_table.c.name == 1,
+                        ),
+                        sa.and_(
+                            data.test_table.c.age > 1,
+                            data.test_table.c.name > 1,
+                            data.test_table.c.id == 1,
+                        ),
+                    )
+                ).compile(compile_kwargs={"literal_binds": True})
+            ),
+        )
 if __name__ == "__main__":
     unittest.main()

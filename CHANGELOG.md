@@ -5,6 +5,10 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+### [0.3.9] - 2025-01-20
+
+- fixed deprecation on `enum` using `functools.partial` - now wrapped in `enum.member` for backward compatibility
+
 ### [0.3.8] - 2024-10-02
 
 - added support for advanced ordering null values in `SQL` backend using nulls last and nulls first methods

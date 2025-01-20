@@ -77,8 +77,8 @@ class Junction(enum.Enum):
     Enum that represents a junction in SQL.
     """
 
-    AND = functools.partial(sa_and)
-    OR = functools.partial(sa_or)
+    AND = enum.member(functools.partial(sa_and))
+    OR = enum.member(functools.partial(sa_or))
 
     @classmethod
     def from_str(cls, value: str) -> "Junction":
