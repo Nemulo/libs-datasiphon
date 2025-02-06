@@ -8,7 +8,7 @@ from sqlalchemy import (
     func as sa_func,
 )
 import sqlalchemy as sa
-from sqlalchemy.sql.elements import ColumnElement, UnaryExpression, _label_reference, Label
+from sqlalchemy.sql.elements import ColumnElement, UnaryExpression, _label_reference, Label, BinaryExpression
 import sqlalchemy.sql.operators as sql_operators
 from sqlalchemy.sql.functions import ReturnTypeFromArgs
 from sqlalchemy.sql.base import ColumnCollection
@@ -32,22 +32,15 @@ def is_nullable(column: t.Any) -> bool:
     """
     # TODO might need more processors for different types
     if isinstance(column, (_label_reference, Label)):
-        return process_label_nullable(column)
+        return is_nullable(column.element)
     elif isinstance(column, ReturnTypeFromArgs):
         return process_function_nullable(column)
+    elif isinstance(column, BinaryExpression):
+        left_nullable = is_nullable(column.left)
+        right_nullable = is_nullable(column.right)
+        return left_nullable or right_nullable
     else:
         return column.nullable
-
-
-def process_label_nullable(column: Label | _label_reference) -> ColumnElement:
-    """
-    Method that processes the label reference and returns the column element.
-    :param column: Label reference to process.
-    :return: ColumnElement.
-    """
-    if isinstance(column.element, ReturnTypeFromArgs):
-        return process_function_nullable(column.element)
-    return column.element.nullable
 
 
 def process_function_nullable(column: ReturnTypeFromArgs) -> ColumnElement:

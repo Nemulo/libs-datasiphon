@@ -2385,7 +2385,9 @@ class SQLTest(unittest.TestCase):
             }
         )
         # prepare expression
-        controll_query = sa.select(sa.func.count(data.test_table.c.id).label('player_count')).select_from(data.test_table)
+        controll_query = sa.select(sa.func.count(data.test_table.c.id).label("player_count")).select_from(
+            data.test_table
+        )
         # prepare filter
         filtering = {
             "player_count": {"gt": 10},
@@ -2394,11 +2396,16 @@ class SQLTest(unittest.TestCase):
         # verify structure
         self.assertEqual(
             str(built_query.compile(compile_kwargs={"literal_binds": True})),
-            str(controll_query.where(sa.func.count(data.test_table.c.id) > 10).compile(compile_kwargs={"literal_binds": True})),
+            str(
+                controll_query.where(sa.func.count(data.test_table.c.id) > 10).compile(
+                    compile_kwargs={"literal_binds": True}
+                )
+            ),
         )
 
-        controll_query = sa.select(sa.func.coalesce(
-            data.secondary_test.c.value, 0).label('value')).select_from(data.secondary_test)
+        controll_query = sa.select(sa.func.coalesce(data.secondary_test.c.value, 0).label("value")).select_from(
+            data.secondary_test
+        )
         # prepare filter
         filtering = {
             "value": {"gt": 10},
@@ -2416,7 +2423,7 @@ class SQLTest(unittest.TestCase):
 
     def test_multiple_nested_junctions(self):
         """
-        This test case targets situation Where multiple junctions are used on same level with same name 
+        This test case targets situation Where multiple junctions are used on same level with same name
         E.g. :
         (a = 1) OR (a > 1 and b=1) OR (a>1 and b>1 and c=1)
         would result in array-like `and` junction which should be correctly
@@ -2437,7 +2444,7 @@ class SQLTest(unittest.TestCase):
                 "and": {
                     0: {"age": {"gt": 1}, "name": {"eq": 1}},
                     1: {"age": {"gt": 1}, "name": {"gt": 1}, "id": {"eq": 1}},
-                }
+                },
             }
         }
         built_query = builder.build(data.basic_enum_select, filtering)
@@ -2461,5 +2468,18 @@ class SQLTest(unittest.TestCase):
                 ).compile(compile_kwargs={"literal_binds": True})
             ),
         )
+
+    def test_is_nullable_binary_expression(self):
+        import src.datasiphon as ds
+        from src.datasiphon.sql_filter import is_nullable
+
+        # create binary expression
+
+        expr = (data.test_table.c.age - sa.func.coalesce(data.test_table.c.id, 0)).label("age_diff")
+        # check if expression is nullable
+        nullable = is_nullable(expr)
+        self.assertFalse(nullable)
+
+
 if __name__ == "__main__":
     unittest.main()
