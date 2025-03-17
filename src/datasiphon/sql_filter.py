@@ -8,11 +8,19 @@ from sqlalchemy import (
     func as sa_func,
 )
 import sqlalchemy as sa
-from sqlalchemy.sql.elements import ColumnElement, UnaryExpression, _label_reference, Label, BinaryExpression
+from sqlalchemy.sql.elements import (
+    ColumnElement,
+    UnaryExpression,
+    _label_reference,
+    Label,
+    BinaryExpression,
+    BindParameter,
+)
+from sqlalchemy.sql.selectable import ScalarSelect
 import sqlalchemy.sql.operators as sql_operators
 from sqlalchemy.sql.functions import ReturnTypeFromArgs
 from sqlalchemy.sql.base import ColumnCollection
-from sqlalchemy.sql.sqltypes import TypeEngine
+from sqlalchemy.sql.sqltypes import TypeEngine, NullType
 from qstion._struct_core import QsRoot, QsNode
 import enum
 import typing as t
@@ -39,6 +47,15 @@ def is_nullable(column: t.Any) -> bool:
         left_nullable = is_nullable(column.left)
         right_nullable = is_nullable(column.right)
         return left_nullable or right_nullable
+    elif isinstance(column, BindParameter):
+        # assume literal
+        if column.type == NullType():
+            return True
+        return False
+    elif isinstance(column, ScalarSelect):
+        if column.type == NullType():
+            return True
+        return False
     else:
         return column.nullable
 

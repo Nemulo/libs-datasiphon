@@ -5,6 +5,11 @@ All notable changes to [qstion](https://github.com/kajotgames/qstion) project wi
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+### [0.3.11] - 2025-03-17
+
+- added handling of `literals` as bindparams in order by clause - now handling whether it's nullable if the type of `BindParam` is `NullType()`
+- also uses this kind of handling for `ScalarSelect`
+
 ### [0.3.9] - 2025-01-20
 
 - fixed deprecation on `enum` using `functools.partial` - now wrapped in `enum.member` for backward compatibility

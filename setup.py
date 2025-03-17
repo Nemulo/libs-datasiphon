@@ -11,7 +11,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="datasiphon",  # Required
-    version="0.3.10",  # Required
+    version="0.3.11",  # Required
     description="Dynamic building of filtered database queries",
     long_description=long_description,
     long_description_content_type="text/markdown",
